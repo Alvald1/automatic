@@ -4,4 +4,5 @@ plugins {
     id (Plugin.androidLibrary) version Versions.kotlin apply false
     id (Plugin.androidKotlin) version Versions.androidKotlin apply false
     id (Plugin.daggerHilt) version Versions.daggerHilt apply false
+    id (Plugin.kotlinCompose) version Versions.kotlinCompose apply false
 }

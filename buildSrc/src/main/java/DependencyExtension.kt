@@ -53,6 +53,7 @@ fun DependencyHandler.cameraX() {
 
 fun DependencyHandler.lifeCycleRuntimeKtx() {
     implementation(Dependencies.lifeCycleRuntimeKtx)
+    implementation(Dependencies.lifeCycleViewmodelKtx)
 }
 fun DependencyHandler.coroutines() {
     implementation(Dependencies.coroutines)

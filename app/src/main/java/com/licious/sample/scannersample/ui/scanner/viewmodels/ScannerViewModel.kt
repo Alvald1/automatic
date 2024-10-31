@@ -16,6 +16,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ScannerViewModel @Inject constructor(): ViewModel(){
     private lateinit var qrCodeManager: ScannerManager
+    private lateinit var __LifecycleOwner: LifecycleOwner
 
     /**
      * Initialize Camera Manager class.
@@ -26,11 +27,16 @@ class ScannerViewModel @Inject constructor(): ViewModel(){
         previewView: PreviewView,
         onResult: (state: ScannerViewState, result: String) -> Unit,
     ) {
+        __LifecycleOwner=viewLifecycleOwner
         qrCodeManager = ScannerManager(
             owner = viewLifecycleOwner, context = context,
             viewPreview = previewView,
             onResult = onResult,
             lensFacing = CameraSelector.LENS_FACING_BACK
         )
+    }
+
+    fun stopCamera() {
+        qrCodeManager.stopCamera()
     }
 }

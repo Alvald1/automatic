@@ -21,6 +21,8 @@ class ScannerAnalyzer(
 
     private val delayForProcessingNextImage = 300L
 
+
+
     @SuppressLint("UnsafeOptInUsageError")
     override fun analyze(imageProxy: ImageProxy) {
         val options =
@@ -34,6 +36,7 @@ class ScannerAnalyzer(
                         .addOnSuccessListener { barcodes ->
                             for (barcode in barcodes) {
                                 onResult(ScannerViewState.Success, barcode.rawValue ?: "")
+                                break
                             }
                         }
                         .addOnFailureListener {

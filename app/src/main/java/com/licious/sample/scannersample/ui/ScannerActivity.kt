@@ -3,6 +3,7 @@ package com.licious.sample.scannersample.ui
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -12,6 +13,7 @@ import com.licious.sample.design.ui.base.BaseActivity
 import com.licious.sample.design.ui.permission.IGetPermissionListener
 import com.licious.sample.design.ui.permission.PermissionUtil
 import com.licious.sample.scannersample.R
+import com.licious.sample.scannersample.ui.scanner.ScannerFragment
 import com.licious.sample.scannersample.databinding.ActivityScannerBinding
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -49,9 +51,25 @@ class ScannerActivity : BaseActivity<ActivityScannerBinding>(), IGetPermissionLi
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Инициализация и проверка разрешений
         initView()
         checkPermission()
+
+        // Обработка результата от ScannerFragment
+        supportFragmentManager.setFragmentResultListener("scanResult", this) { _, bundle ->
+            val result = bundle.getString("result")
+            if (result != null) {
+                val intent = Intent().apply {
+                    putExtra("SCAN_RESULT", result)
+                }
+                setResult(Activity.RESULT_OK, intent)  // Передаем результат в MainActivity
+                finish()  // Завершаем ScannerActivity
+            }
+        }
     }
+
+
 
     override fun onPermissionGranted() {
         navController?.setGraph(R.navigation.nav_main)

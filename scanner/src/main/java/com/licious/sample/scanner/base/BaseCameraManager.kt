@@ -83,6 +83,14 @@ abstract class BaseCameraManager(
         }
     }
 
+    fun stopCamera() {
+        if (this::cameraProvider.isInitialized) {
+            cameraProvider.unbindAll()  // Unbind all camera use cases
+            cameraExecutor.shutdown()   // Shut down the executor to release resources
+            stopped = true              // Set a flag to indicate the camera is stopped
+        }
+    }
+
     /**
      * unbind camera provider.
      */

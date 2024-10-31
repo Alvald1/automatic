@@ -14,14 +14,15 @@ import com.licious.sample.design.ui.base.BaseFragment
 import com.licious.sample.scannersample.databinding.FragmentScannerBinding
 import com.licious.sample.scannersample.ui.scanner.viewmodels.ScannerViewModel
 import com.licious.sample.scanner.ScannerViewState
+import com.licious.sample.scanner.base.BaseCameraManager
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
  *  This Class will scan all qrcode and display it.
  */
 @AndroidEntryPoint
-class ScannerFragment : BaseFragment<FragmentScannerBinding>() {
-    private val qrCodeViewModel: ScannerViewModel by viewModels()
+open class ScannerFragment : BaseFragment<FragmentScannerBinding>() {
+    public val qrCodeViewModel: ScannerViewModel by viewModels()
 
     private val vibrator: Vibrator by lazy {
         requireActivity().getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
@@ -53,21 +54,24 @@ class ScannerFragment : BaseFragment<FragmentScannerBinding>() {
     /**
      * Success callback and error callback when barcode is successfully scanned. This method is also called while manually enter barcode
      */
-    private fun onResult(state: ScannerViewState, result: String?) {
-        when(state)
-        {
+
+    fun onResult(state: ScannerViewState, result: String?) {
+        when (state) {
             ScannerViewState.Success -> {
                 vibrateOnScan()
-                Toast.makeText(requireContext(), "result=${result}", Toast.LENGTH_SHORT).show()
-            }
-             ScannerViewState.Error -> {
-                Toast.makeText(requireContext(), "error =${result}", Toast.LENGTH_SHORT).show()
+                val bundle = Bundle().apply {
+                    putString("result", result)
+                }
+                // Передаем результат через FragmentManager
+                parentFragmentManager.setFragmentResult("scanResult", bundle)
             }
             else -> {
-                Toast.makeText(requireContext(), "error =${result}", Toast.LENGTH_SHORT).show()
+                // Обработка ошибки или закрытие фрагмента
+                requireActivity().finish()
             }
         }
     }
+
 
     /**
      *  Animation for the red bar.

@@ -4,7 +4,7 @@ object Plugin {
     const val androidLibrary = "com.android.library"
     const val daggerHilt = "dagger.hilt.android.plugin"
     const val kotlinAndroidKapt = "kapt"
-    const val parcelize = "kotlin-parcelize"
+    const val kotlinCompose = "org.jetbrains.kotlin.plugin.compose"
 }
 
 object Dependencies {
@@ -19,6 +19,7 @@ object Dependencies {
     const val cameraLifecycle = "androidx.camera:camera-lifecycle:${Versions.cameraX}"
     const val cameraView = "androidx.camera:camera-view:${Versions.cameraX}"
     const val lifeCycleRuntimeKtx = "androidx.lifecycle:lifecycle-runtime-ktx:${Versions.lifecycleRuntimeKtx}"
+    const val lifeCycleViewmodelKtx = "androidx.lifecycle:lifecycle-runtime-ktx:${Versions.lifecycleViewmodelKtx}"
     const val coroutines = "org.jetbrains.kotlinx:kotlinx-coroutines-android:${Versions.coroutines}"
     const val daggerHilt = "com.google.dagger:hilt-android:${Versions.daggerHilt}"
     const val daggerHiltCompiler = "com.google.dagger:hilt-compiler:${Versions.daggerHilt}"

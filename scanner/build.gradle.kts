@@ -33,6 +33,7 @@ android {
 }
 
 dependencies {
+    implementation("com.google.android.gms:play-services-mlkit-barcode-scanning:18.3.1")
     mlkit()
     cameraX()
     lifeCycleRuntimeKtx()
