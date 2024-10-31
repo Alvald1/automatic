@@ -1,5 +1,6 @@
 package com.licious.sample.scannersample
 
+import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -7,20 +8,21 @@ import android.util.Log
 class MyNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        // Здесь вы можете обрабатывать каждое новое уведомление
-        val notification = sbn.notification
         val packageName = sbn.packageName
-        val title = notification?.extras?.getString("android.title")
-        val text = notification?.extras?.getString("android.text")
+        val title = sbn.notification?.extras?.getString("android.title")
+        val text = sbn.notification?.extras?.getString("android.text")
 
-        // Логирование или обработка уведомления
         Log.d("NotificationListener", "Уведомление от $packageName: $title - $text")
 
-        // Вы можете отправить уведомление в UI или обработать его другим способом
+        // Отправка уведомления в MainActivity через Broadcast
+        val intent = Intent("com.licious.sample.NOTIFICATION_LISTENER")
+        intent.putExtra("package_name", packageName)
+        intent.putExtra("title", title)
+        intent.putExtra("text", text)
+        sendBroadcast(intent)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        // Обработка удаления уведомления (если нужно)
         Log.d("NotificationListener", "Уведомление удалено: ${sbn.packageName}")
     }
 }
