@@ -32,7 +32,7 @@ object Versions {
 object Apps {
     const val applicationId = "com.licious.sample.scannersample"
     const val compileSdk = 35
-    const val minSdk = 21
+    const val minSdk = 24
     const val targetSdk = 35
     const val versionName = "1.0.0"
     const val versionCode = 1

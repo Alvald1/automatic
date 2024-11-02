@@ -1,12 +1,20 @@
 package com.licious.sample.scannersample
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,12 +28,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import com.licious.sample.scannersample.ui.ScannerActivity
-import com.licious.sample.scannersample.ui.scanner.ScannerFragment
 import com.licious.sample.scannersample.ui.theme.AutomaticTheme
-import kotlin.reflect.KMutableProperty1
-import android.provider.Settings
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.delay
 
+const val REQUEST_CODE_NOTIFICATION_PERMISSION = 1001
 
 class MainActivity : ComponentActivity() {
 
@@ -39,13 +50,21 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-
+    // Новый обработчик для запроса разрешений
+    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) {
+            sendGlobalNotification(this, "Заголовок уведомления", "Текст уведомления")
+        } else {
+            Toast.makeText(this, "Разрешение на отправку уведомлений отклонено", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     @SuppressLint("NewApi")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val filter = IntentFilter("com.licious.sample.NOTIFICATION_LISTENER")
-        registerReceiver(notificationReceiver, filter,RECEIVER_EXPORTED)
+        registerReceiver(notificationReceiver, IntentFilter("com.licious.sample.NOTIFICATION_LISTENER"),
+            RECEIVER_NOT_EXPORTED
+        )
 
         setContent {
             AutomaticTheme {
@@ -56,24 +75,22 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // Отменяем регистрацию BroadcastReceiver, чтобы избежать утечек памяти
         unregisterReceiver(notificationReceiver)
     }
 
-    fun sendNotification(context: Context, packageName: String, title: String, text: String) {
-        val intent = Intent("com.licious.sample.NOTIFICATION_LISTENER")
-        intent.putExtra("package_name", packageName)
-        intent.putExtra("title", title)
-        intent.putExtra("text", text)
-        context.sendBroadcast(intent)
-    }
-
-
-    // Открытие ScannerActivity
     private fun openScanner() {
-        sendNotification(this, "com.example.app", "Новое сообщение", "Это текст уведомления")
+        // Проверка наличия разрешения на отправку уведомлений для Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            // Запрашиваем разрешение с помощью requestPermissionLauncher
+            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            // Отправляем уведомление, если разрешение уже предоставлено
+            sendGlobalNotification(this, "Заголовок уведомления", "Текст уведомления")
+        }
+
         val intent = Intent(this, ScannerActivity::class.java)
-        scannerLauncher.launch(intent)  // Запускаем ScannerActivity через scannerLauncher
+        scannerLauncher.launch(intent)
     }
 
     private val notificationReceiver = object : BroadcastReceiver() {
@@ -81,13 +98,65 @@ class MainActivity : ComponentActivity() {
             val packageName = intent?.getStringExtra("package_name")
             val title = intent?.getStringExtra("title")
             val text = intent?.getStringExtra("text")
-
-            // Отображение уведомления через Toast
             Toast.makeText(context, "Уведомление от $packageName: $title - $text", Toast.LENGTH_LONG).show()
         }
     }
-
 }
+
+@SuppressLint("MissingPermission")
+fun sendGlobalNotification(activity: Activity, title: String, message: String) {
+    // Проверка наличия разрешения POST_NOTIFICATIONS для Android 13 и выше
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            // Запрашиваем разрешение, если оно не предоставлено
+            ActivityCompat.requestPermissions(
+                activity,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                1001 // Код запроса
+            )
+            return // Останавливаем выполнение до получения разрешения
+        }
+    }
+
+    // Создаем канал уведомлений, если его нет
+    val channelId = "global_channel_id"
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channelName = "Global Notifications"
+        val importance = NotificationManager.IMPORTANCE_DEFAULT
+        val channel = NotificationChannel(channelId, channelName, importance).apply {
+            description = "Channel for global notifications"
+        }
+
+        // Регистрация канала в NotificationManager
+        val notificationManager = activity.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    // Настройка намерения для открытия MainActivity при нажатии на уведомление
+    val intent = Intent(activity, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+    }
+    val pendingIntent = PendingIntent.getActivity(activity, 0, intent, PendingIntent.FLAG_IMMUTABLE)
+
+    // Создание и настройка уведомления
+    val builder = NotificationCompat.Builder(activity, channelId)
+        .setSmallIcon(android.R.drawable.ic_dialog_info) // Убедитесь, что добавлена иконка
+        .setContentTitle(title)
+        .setContentText(message)
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setContentIntent(pendingIntent)
+        .setAutoCancel(true)
+
+    // Проверяем наличие разрешения еще раз перед отправкой уведомления
+    try {
+        NotificationManagerCompat.from(activity).notify(1, builder.build()) // ID должен быть уникальным
+    } catch (e: SecurityException) {
+        Log.e("NotificationError", "Разрешение на уведомления отсутствует: ${e.message}")
+    } catch (e: Exception) {
+        Log.e("NotificationError", "Ошибка отправки уведомления: ${e.message}")
+    }
+}
+
 
 fun checkNotificationPermission(context: Context): Boolean {
     val enabledListeners = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")

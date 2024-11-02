@@ -54,6 +54,7 @@ android {
 dependencies {
     implementation(project(":design"))
     implementation(project(":scanner"))
+    implementation("androidx.core:core:1.9.0")
     androidX()
     daggerHilt()
     testEspressoCore()
