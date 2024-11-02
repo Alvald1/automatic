@@ -98,10 +98,48 @@ class MainActivity : ComponentActivity() {
             val packageName = intent?.getStringExtra("package_name")
             val title = intent?.getStringExtra("title")
             val text = intent?.getStringExtra("text")
+            filter(packageName,title,text)
             Toast.makeText(context, "Уведомление от $packageName: $title - $text", Toast.LENGTH_LONG).show()
         }
     }
 }
+
+fun filter(packageName: String?, title: String?, text: String?) {
+    if (packageName == "ru.bankuralsib.mb.android") {
+        val pattern = Regex(
+            """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
+        )
+
+        // Использование let для проверки на null и матчинг
+        val matchResult = text?.let { pattern.matchEntire(it) }
+
+        if (matchResult != null) {
+            // Извлечение групп
+            val sender = matchResult.groups[1]?.value
+            val bankName = matchResult.groups[2]?.value
+            val amount = matchResult.groups[3]?.value
+            val accountNumber = matchResult.groups[4]?.value
+            val day = matchResult.groups[5]?.value
+            val month = matchResult.groups[6]?.value
+            val year = matchResult.groups[7]?.value
+            val hour = matchResult.groups[8]?.value
+            val minute = matchResult.groups[9]?.value
+
+            // Вывод извлечённых значений
+            println("Отправитель: $sender")
+            println("Банк: $bankName")
+            println("Сумма: $amount RUR")
+            println("Номер счета: $accountNumber")
+            println("Дата исполнения: $day.$month.$year")
+            println("Время исполнения: $hour:$minute")
+        } else {
+            println("Строка не соответствует ожидаемому формату.")
+        }
+    } else {
+        println("Некорректное имя пакета.")
+    }
+}
+
 
 @SuppressLint("MissingPermission")
 fun sendGlobalNotification(activity: Activity, title: String, message: String) {
