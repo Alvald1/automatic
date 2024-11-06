@@ -26,6 +26,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
@@ -55,6 +58,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlinx.serialization.*
 import kotlinx.serialization.json.Json
 import java.net.HttpURLConnection
+import androidx.compose.material.icons.filled.Delete
+
 
 
 // Данные для десериализации JSON-ответа
@@ -70,6 +75,8 @@ var scanStatus:Boolean=false
 
 
 class MainActivity : ComponentActivity() {
+    private val notificationHistory = mutableStateListOf<String>() // Хранение истории уведомлений
+    private lateinit var sharedPrefs: SharedPreferences
 
 
     private val scannerLauncher =
@@ -103,7 +110,8 @@ class MainActivity : ComponentActivity() {
         registerReceiver(notificationReceiver, IntentFilter("com.licious.sample.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
-
+        sharedPrefs = getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
+        loadNotificationHistory()
         // Загрузка сохранённого результата сканирования
         id_ = loadResult(this,"SCAN_RESULT")
         device_name_=loadResult(this,"DEVICE_NAME")
@@ -111,7 +119,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             AutomaticTheme {
-                AppNavigation(onScanQrClicked = { openScanner() })
+                AppNavigation()
 
             }
         }
@@ -122,9 +130,50 @@ class MainActivity : ComponentActivity() {
         unregisterReceiver(notificationReceiver)
     }
 
-    fun openScanner() {
+    private fun openScanner() {
         val intent = Intent(this, ScannerActivity::class.java)
         scannerLauncher.launch(intent)
+    }
+
+    // Логика очистки истории
+    private fun clearHistory() {
+        notificationHistory.clear()
+        saveNotificationHistory()
+    }
+
+    @Composable
+    fun AppNavigation() {
+        val navController = rememberNavController()
+
+        NavHost(navController = navController, startDestination = "main") {
+            composable("main") {
+                MainScreen(
+                    onScanQrClicked =  {openScanner()},
+                    onHistoryClicked = { navController.navigate("history") }
+                )
+            }
+            composable("history") {
+                HistoryScreen(
+                    onBack = { navController.popBackStack() },
+                    notificationHistory = notificationHistory,
+                    onClearHistory = { clearHistory() })
+            }
+        }
+    }
+
+    private fun saveNotificationHistory() {
+        val historyString = notificationHistory.joinToString(separator = "||") // Используем разделитель "||"
+        sharedPrefs.edit().putString("notification_history", historyString).apply()
+    }
+
+    // Загружаем историю уведомлений из SharedPreferences
+    private fun loadNotificationHistory() {
+        val historyString = sharedPrefs.getString("notification_history", null)
+        if (!historyString.isNullOrEmpty()) {
+            val historyList = historyString.split("||") // Разделяем строки по "||"
+            notificationHistory.clear()
+            notificationHistory.addAll(historyList)
+        }
     }
 
     private val notificationReceiver = object : BroadcastReceiver() {
@@ -132,6 +181,12 @@ class MainActivity : ComponentActivity() {
             val packageName = intent?.getStringExtra("package_name")
             val title = intent?.getStringExtra("title")
             val text = intent?.getStringExtra("text")
+
+            // Добавление уведомления в историю
+            val notificationInfo = "Пакет: $packageName\nЗаголовок: $title\nТекст: $text"
+            notificationHistory.add(notificationInfo)
+            saveNotificationHistory()
+
             filter(packageName,title,text)
         }
     }
@@ -266,6 +321,14 @@ fun checkNotificationPermission(context: Context): Boolean {
     return enabledListeners != null && enabledListeners.contains(context.packageName)
 }
 
+@SuppressLint("InlinedApi")
+fun requestNotificationPermission(context: Context) {
+    if (!checkNotificationPermission(context)) {
+        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        context.startActivity(intent)
+    }
+}
+
 @Composable
 fun MainScreen(
     onScanQrClicked: () -> Unit,
@@ -304,6 +367,11 @@ fun MainScreen(
             Button(onClick = onScanQrClicked) {
                 Text(text = "Сканировать API-QR")
             }
+            if (!hasNotificationPermission) {
+                Button(onClick = { requestNotificationPermission(context) }) {
+                    Text(text = "Разрешения не получены. Нажмите для перехода в настройки.")
+                }
+            }
 
             Button(onClick = { turnOn(context) }) {
                 Text(text = "Включить")
@@ -321,11 +389,20 @@ fun MainScreen(
         }
     }
 }
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(onBack: () -> Unit) {
+fun HistoryScreen(onBack: () -> Unit, notificationHistory: List<String>, onClearHistory: () -> Unit) {
+    // Состояние для списка прокрутки
+    val listState = rememberLazyListState()
+
+    // Прокрутка до последнего элемента при изменении данных
+    LaunchedEffect(notificationHistory) {
+        if(notificationHistory.isEmpty())
+            listState.scrollToItem(0)
+        else
+            listState.scrollToItem(notificationHistory.size - 1)
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
@@ -335,40 +412,41 @@ fun HistoryScreen(onBack: () -> Unit) {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
+                },
+                actions = {
+                    IconButton(onClick = onClearHistory) {
+                        Icon(Icons.Filled.Delete, contentDescription = "Clear History")
+                    }
                 }
             )
         }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            state = listState,
+            reverseLayout = true // Инвертирует порядок отображения элементов
         ) {
-            Text(text = "Здесь будет отображаться история.")
-            // Здесь можно добавить код для отображения истории
+            items(notificationHistory) { notification ->
+                Text(
+                    text = notification,
+                    modifier = Modifier
+                        .padding(8.dp)
+                )
+            }
         }
     }
 }
 
 
-@Composable
-fun AppNavigation(onScanQrClicked: () -> Unit) {
-    val navController = rememberNavController()
 
-    NavHost(navController = navController, startDestination = "main") {
-        composable("main") {
-            MainScreen(
-                onScanQrClicked =  onScanQrClicked,
-                onHistoryClicked = { navController.navigate("history") }
-            )
-        }
-        composable("history") {
-            HistoryScreen(onBack = { navController.popBackStack() })
-        }
-    }
-}
+
+
+
+
+
+
 
 
 
