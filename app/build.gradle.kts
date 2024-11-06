@@ -4,6 +4,7 @@ plugins {
     kotlin(Plugin.kotlinAndroidKapt)
     id(Plugin.daggerHilt)
     id("org.jetbrains.kotlin.plugin.compose")
+    kotlin("plugin.serialization") version "2.0.20"
 }
 
 android {
@@ -55,6 +56,7 @@ dependencies {
     implementation(project(":design"))
     implementation(project(":scanner"))
     implementation("androidx.core:core:1.9.0")
+    implementation("androidx.navigation:navigation-compose:2.8.3")
     androidX()
     daggerHilt()
     testEspressoCore()
@@ -62,6 +64,7 @@ dependencies {
     navigation()
 
     // Jetpack Compose dependencies
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.9.3")
     implementation("androidx.compose.ui:ui:1.7.5") // Compose UI
     implementation("androidx.compose.material3:material3:1.3.1") // Material Design 3
