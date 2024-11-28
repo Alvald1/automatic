@@ -56,9 +56,8 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.licious.sample.scannersample.ui.ScannerActivity
-import com.licious.sample.scannersample.ui.theme.AutomaticTheme
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.Call
 import okhttp3.Callback
@@ -67,6 +66,13 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.security.KeyFactory
+import java.security.PublicKey
+import java.security.spec.X509EncodedKeySpec
+import javax.crypto.Cipher
+import java.util.Base64
+import com.licious.sample.scannersample.ui.ScannerActivity
+import com.licious.sample.scannersample.ui.theme.AutomaticTheme
 
 
 // Данные для десериализации JSON-ответа
@@ -77,9 +83,17 @@ data class ResponseData(
     val name: String? = null
 )
 
+@Serializable
+data class EncryptedData(
+    val encryptedKey: String,
+    val iv: String,
+    val ciphertext: String
+)
+
 
 var device_name_: String? = "Neo"
 var id_: String? = ""
+var pem_pub_: String? = ""
 var scanStatus: Boolean = false
 
 
@@ -93,7 +107,7 @@ class MainActivity : ComponentActivity() {
             if (result.resultCode == Activity.RESULT_OK) {
                 val scanResult = result.data?.getStringExtra("SCAN_RESULT")
                 scanResult?.let {
-
+                    turnOff(this)
                     val url = "http://213.189.205.6:8080/api"
                     val params = mapOf("key" to it, "status" to "on")
                     sendPostRequest(url, params) { response ->
@@ -102,9 +116,10 @@ class MainActivity : ComponentActivity() {
                             if (obj.code != 0) {
                                 showToast(this, obj.message)
                             } else {
+                                pem_pub_ = obj.message
                                 device_name_ = obj.name
-                                saveResult(this, "DEVICE_NAME", device_name_)
                                 id_ = it
+                                saveResult(this, "DEVICE_NAME", device_name_)
                                 saveResult(this, "ID", it)
                                 scanStatus = true
                             }
@@ -291,8 +306,41 @@ fun turnOn(context: Context) {
             if (response != null) {
                 val obj = Json.decodeFromString<ResponseData>(response)
                 if (obj.code == 0) {
+                    pem_pub_ = obj.message
                     scanStatus = true
                     showToast(context, "Ok")
+                } else
+                    showToast(context, obj.message)
+            } else {
+                println("Failed to get response")
+            }
+        }
+    } else {
+        showToast(context, "Устройство не подключено")
+    }
+}
+
+fun Test(context: Context) {
+    if (id_ != null && id_ != "") {
+        val id: String = id_ as String
+        val url = "http://213.189.205.6:8080/api"
+        val pem_pub = pem_pub_?.trimIndent()
+
+        val encryptor = pem_pub?.let { HybridEncryptor(it) }
+        val encryptedDataMap = encryptor!!.encrypt(url)
+        val encryptedData = EncryptedData(
+            encryptedKey = encryptedDataMap["encryptedKey"] ?: "",
+            iv = encryptedDataMap["iv"] ?: "",
+            ciphertext = encryptedDataMap["ciphertext"] ?: ""
+        )
+        val jsonString = Json.encodeToString(encryptedData)
+
+        val params = mapOf("key" to id, "message" to jsonString)
+        sendPostRequest(url, params) { response ->
+            if (response != null) {
+                val obj = Json.decodeFromString<ResponseData>(response)
+                if (obj.code == 0) {
+                    showToast(context, obj.message)
                 } else
                     showToast(context, obj.message)
             } else {
@@ -450,6 +498,9 @@ fun MainScreen(
 
             Button(onClick = { turnOff(context) }) {
                 Text(text = "Выключить")
+            }
+            Button(onClick = { Test(context) }) {
+                Text(text = "Тест")
             }
 
             Spacer(modifier = Modifier.height(16.dp))
