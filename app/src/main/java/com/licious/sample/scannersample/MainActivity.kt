@@ -1,15 +1,9 @@
 package com.licious.sample.scannersample
 
 
-import okhttp3.*
-import java.net.URL
-import java.io.IOException
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -18,60 +12,75 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
-import com.licious.sample.scannersample.ui.ScannerActivity
-import com.licious.sample.scannersample.ui.theme.AutomaticTheme
-import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import kotlinx.serialization.*
+import com.licious.sample.scannersample.ui.ScannerActivity
+import com.licious.sample.scannersample.ui.theme.AutomaticTheme
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.net.HttpURLConnection
-import androidx.compose.material.icons.filled.Delete
-
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.FormBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import java.io.IOException
 
 
 // Данные для десериализации JSON-ответа
 @Serializable
-data class ResponseData(val success: Boolean, val data: DataContent)
+data class ResponseData(
+    val message: String,
+    val code: Int,
+    val name: String? = null
+)
 
-@Serializable
-data class DataContent(val status: String, val name: String)
 
-var device_name_:String?="Neo"
-var id_:String?=""
-var scanStatus:Boolean=false
+var device_name_: String? = "Neo"
+var id_: String? = ""
+var scanStatus: Boolean = false
 
 
 class MainActivity : ComponentActivity() {
@@ -85,20 +94,24 @@ class MainActivity : ComponentActivity() {
                 val scanResult = result.data?.getStringExtra("SCAN_RESULT")
                 scanResult?.let {
 
-                    val url = "https://cryptoflow.com.ru/"
+                    val url = "http://213.189.205.6:8080/api"
                     val params = mapOf("key" to it, "status" to "on")
-                    sendGetRequest(url, params) { response ->
+                    sendPostRequest(url, params) { response ->
                         if (response != null) {
-                            val obj=Json.decodeFromString<ResponseData>(response)
-                            device_name_=obj.data.name
-                            saveResult(this, "DEVICE_NAME", device_name_)
-                            scanStatus=true
+                            val obj = Json.decodeFromString<ResponseData>(response)
+                            if (obj.code != 0) {
+                                showToast(this, obj.message)
+                            } else {
+                                device_name_ = obj.name
+                                saveResult(this, "DEVICE_NAME", device_name_)
+                                id_ = it
+                                saveResult(this, "ID", it)
+                                scanStatus = true
+                            }
                         } else {
                             println("Failed to get response")
                         }
                     }
-                    id_=it
-                    saveResult(this, "SCAN_RESULT", it)
                 }
             }
         }
@@ -107,14 +120,18 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("NewApi")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        registerReceiver(notificationReceiver, IntentFilter("com.licious.sample.NOTIFICATION_LISTENER"),
+        registerReceiver(
+            notificationReceiver, IntentFilter("com.licious.sample.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
         sharedPrefs = getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
         loadNotificationHistory()
         // Загрузка сохранённого результата сканирования
-        id_ = loadResult(this,"SCAN_RESULT")
-        device_name_=loadResult(this,"DEVICE_NAME")
+        id_ = loadResult(this, "ID")
+        device_name_ = loadResult(this, "DEVICE_NAME")
+
+        requestNotificationPermission_post()
+        //startForegroundService(Intent(this, MyForegroundService::class.java))
 
 
         setContent {
@@ -148,7 +165,7 @@ class MainActivity : ComponentActivity() {
         NavHost(navController = navController, startDestination = "main") {
             composable("main") {
                 MainScreen(
-                    onScanQrClicked =  {openScanner()},
+                    onScanQrClicked = { openScanner() },
                     onHistoryClicked = { navController.navigate("history") }
                 )
             }
@@ -162,7 +179,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveNotificationHistory() {
-        val historyString = notificationHistory.joinToString(separator = "||") // Используем разделитель "||"
+        val historyString =
+            notificationHistory.joinToString(separator = "||") // Используем разделитель "||"
         sharedPrefs.edit().putString("notification_history", historyString).apply()
     }
 
@@ -187,33 +205,69 @@ class MainActivity : ComponentActivity() {
             notificationHistory.add(notificationInfo)
             saveNotificationHistory()
 
-            filter(packageName,title,text)
+            filter(packageName, title, text)
         }
     }
+
+    private val requestPermissionLauncher_post =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            if (isGranted) {
+                showToast(this, "Разрешение на отправку уведомления предоставлено")
+            } else {
+                showToast(this, "Разрешение на отправку уведомления отклонено")
+            }
+        }
+
+    private fun requestNotificationPermission_post() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            when {
+                ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED -> {
+                    showToast(this, "Разрешение уже предоставлено")
+                }
+
+                else -> {
+                    // Запрос разрешения
+                    requestPermissionLauncher_post.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            }
+        }
+    }
+
 }
 
 
-fun sendGetRequest(url: String, params: Map<String, String>, callback: (String?) -> Unit) {
-    // Создаем OkHttpClient
-    val client = OkHttpClient()
-    // Строим URL с параметрами запроса
-    val httpUrlBuilder = url.toHttpUrlOrNull()?.newBuilder() ?: return
+fun sendPostRequest(
+    url: String,
+    params: Map<String, String>,
+    callback: (String?) -> Unit
+) {
+
+    val formBodyBuilder = FormBody.Builder()
     for ((key, value) in params) {
-        httpUrlBuilder.addQueryParameter(key, value)
+        formBodyBuilder.add(key, value)
     }
-    val finalUrl = httpUrlBuilder.build().toString()
-    // Создаем запрос GET
+    val requestBody = formBodyBuilder.build()
+
+    // Создаем HTTP-клиент
+    val client = OkHttpClient()
+
+    // Формируем запрос
     val request = Request.Builder()
-        .url(finalUrl)
-        .get()
+        .url(url)
+        .post(requestBody)
         .build()
-    // Выполняем запрос асинхронно
+
+    // Выполняем запрос
     client.newCall(request).enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
             e.printStackTrace()
             // Возвращаем null, если произошла ошибка
             callback(null)
         }
+
         override fun onResponse(call: Call, response: Response) {
             if (response.isSuccessful) {
                 // Получаем тело ответа в виде строки
@@ -227,53 +281,70 @@ fun sendGetRequest(url: String, params: Map<String, String>, callback: (String?)
     })
 }
 
+
 fun turnOn(context: Context) {
     if (id_ != null && id_ != "") {
-        val id:String= id_ as String
-        val url = "https://cryptoflow.com.ru/"
+        val id: String = id_ as String
+        val url = "http://213.189.205.6:8080/api"
         val params = mapOf("key" to id, "status" to "on")
-        sendGetRequest(url, params) { response ->
+        sendPostRequest(url, params) { response ->
             if (response != null) {
-                scanStatus = true
+                val obj = Json.decodeFromString<ResponseData>(response)
+                if (obj.code == 0) {
+                    scanStatus = true
+                    showToast(context, "Ok")
+                } else
+                    showToast(context, obj.message)
             } else {
                 println("Failed to get response")
             }
         }
-    }else{
-        Toast.makeText(context, "Устройство не подключено", Toast.LENGTH_SHORT).show()
+    } else {
+        showToast(context, "Устройство не подключено")
     }
 }
 
 fun turnOff(context: Context) {
     if (id_ != null && id_ != "") {
-        val id:String= id_ as String
-        val url = "https://cryptoflow.com.ru/"
+        val id: String = id_ as String
+        val url = "http://213.189.205.6:8080/api"
         val params = mapOf("key" to id, "status" to "off")
-        sendGetRequest(url, params) { response ->
+        sendPostRequest(url, params) { response ->
             if (response != null) {
-                scanStatus=false
+                val obj = Json.decodeFromString<ResponseData>(response)
+                if (obj.code == 0) {
+                    scanStatus = false
+                    showToast(context, obj.message)
+                } else
+                    showToast(context, obj.message)
             } else {
                 println("Failed to get response")
             }
         }
-    }else{
-        Toast.makeText(context, "Устройство не подключено", Toast.LENGTH_SHORT).show()
+    } else {
+        showToast(context, "Устройство не подключено")
     }
 }
 
 
+fun showToast(context: Context, message: String) {
+    Handler(Looper.getMainLooper()).post {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+}
 
-
-fun saveResult(context: Context,key:String, scanResult: String?) {
-    val sharedPreferences: SharedPreferences = context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
+fun saveResult(context: Context, key: String, scanResult: String?) {
+    val sharedPreferences: SharedPreferences =
+        context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
     with(sharedPreferences.edit()) {
         putString(key, scanResult)
         apply()
     }
 }
 
-fun loadResult(context: Context,key:String): String? {
-    val sharedPreferences: SharedPreferences = context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
+fun loadResult(context: Context, key: String): String? {
+    val sharedPreferences: SharedPreferences =
+        context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
     return sharedPreferences.getString(key, null)
 }
 
@@ -315,9 +386,9 @@ fun filter(packageName: String?, title: String?, text: String?) {
 }
 
 
-
 fun checkNotificationPermission(context: Context): Boolean {
-    val enabledListeners = Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
+    val enabledListeners =
+        Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
     return enabledListeners != null && enabledListeners.contains(context.packageName)
 }
 
@@ -389,15 +460,20 @@ fun MainScreen(
         }
     }
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HistoryScreen(onBack: () -> Unit, notificationHistory: List<String>, onClearHistory: () -> Unit) {
+fun HistoryScreen(
+    onBack: () -> Unit,
+    notificationHistory: List<String>,
+    onClearHistory: () -> Unit
+) {
     // Состояние для списка прокрутки
     val listState = rememberLazyListState()
 
     // Прокрутка до последнего элемента при изменении данных
     LaunchedEffect(notificationHistory) {
-        if(notificationHistory.isEmpty())
+        if (notificationHistory.isEmpty())
             listState.scrollToItem(0)
         else
             listState.scrollToItem(notificationHistory.size - 1)
@@ -440,16 +516,6 @@ fun HistoryScreen(onBack: () -> Unit, notificationHistory: List<String>, onClear
 }
 
 
-
-
-
-
-
-
-
-
-
-
 @Composable
 fun NetworkStatus(isOnline: Boolean) {
     val backgroundColor = if (isOnline) Color.Green else Color.Red
@@ -468,9 +534,6 @@ fun NetworkStatus(isOnline: Boolean) {
         )
     }
 }
-
-
-
 
 
 // Функция для отображения приветственного сообщения
