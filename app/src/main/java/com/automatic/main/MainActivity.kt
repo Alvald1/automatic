@@ -56,6 +56,8 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.automatic.main.ui.ScannerActivity
+import com.automatic.main.ui.theme.AutomaticTheme
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -66,8 +68,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
-import com.automatic.main.ui.ScannerActivity
-import com.automatic.main.ui.theme.AutomaticTheme
 
 
 // Данные для десериализации JSON-ответа

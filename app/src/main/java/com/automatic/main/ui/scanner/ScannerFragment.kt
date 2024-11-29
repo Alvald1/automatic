@@ -10,9 +10,9 @@ import android.view.animation.Animation
 import android.view.animation.AnimationUtils
 import androidx.fragment.app.viewModels
 import com.automatic.design.ui.base.BaseFragment
-import com.licious.automatic.main.databinding.FragmentScannerBinding
 import com.automatic.main.ui.scanner.viewmodels.ScannerViewModel
 import com.automatic.scanner.ScannerViewState
+import com.licious.automatic.main.databinding.FragmentScannerBinding
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
