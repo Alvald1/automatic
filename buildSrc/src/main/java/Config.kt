@@ -30,7 +30,7 @@ object Versions {
 }
 
 object Apps {
-    const val applicationId = "com.licious.sample.scannersample"
+    const val applicationId = "com.automatic.main"
     const val compileSdk = 35
     const val minSdk = 26
     const val targetSdk = 35

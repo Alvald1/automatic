@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.licious.sample.design"
+    namespace = "com.automatic.design"
     compileSdk = Apps.compileSdk
 
     defaultConfig {

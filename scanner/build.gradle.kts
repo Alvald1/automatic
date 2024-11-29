@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.licious.sample.scanner"
+    namespace = "com.automatic.scanner"
     compileSdk = Apps.compileSdk
 
     defaultConfig {

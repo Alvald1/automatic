@@ -6,7 +6,7 @@ pluginManagement {
     }
     resolutionStrategy {
         eachPlugin {
-            if( requested.id.id == "dagger.hilt.android.plugin") {
+            if (requested.id.id == "dagger.hilt.android.plugin") {
                 useModule("com.google.dagger:hilt-android-gradle-plugin:2.39.1")
             }
         }
@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "QRCodeScannerSample"
-include (":app")
+rootProject.name = "Automatic"
+include(":app")
 include(":scanner")
 include(":design")
