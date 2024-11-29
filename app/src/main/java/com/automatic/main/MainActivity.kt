@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         registerReceiver(
-            notificationReceiver, IntentFilter("com.licious.sample.NOTIFICATION_LISTENER"),
+            notificationReceiver, IntentFilter("com.automatic.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
         sharedPrefs = getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)

@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.View
 import android.view.animation.Animation
 import android.view.animation.AnimationUtils
@@ -12,7 +13,7 @@ import androidx.fragment.app.viewModels
 import com.automatic.design.ui.base.BaseFragment
 import com.automatic.main.ui.scanner.viewmodels.ScannerViewModel
 import com.automatic.scanner.ScannerViewState
-import com.licious.automatic.main.databinding.FragmentScannerBinding
+import com.automatic.main.databinding.FragmentScannerBinding
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
@@ -23,8 +24,16 @@ open class ScannerFragment : BaseFragment<FragmentScannerBinding>() {
     public val qrCodeViewModel: ScannerViewModel by viewModels()
 
     private val vibrator: Vibrator by lazy {
-        requireActivity().getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager =
+                requireActivity().getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            requireActivity().getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
     }
+
 
     override fun getLogTag(): String = TAG
 
@@ -83,7 +92,7 @@ open class ScannerFragment : BaseFragment<FragmentScannerBinding>() {
     private fun startAnimation() {
         val animation: Animation = AnimationUtils.loadAnimation(
             context,
-            com.licious.automatic.scanner.R.anim.barcode_animator
+            com.automatic.scanner.R.anim.barcode_animator
         )
         binding.llAnimation.startAnimation(animation)
     }
@@ -101,12 +110,14 @@ open class ScannerFragment : BaseFragment<FragmentScannerBinding>() {
                     )
                 )
             } else {
+                @Suppress("DEPRECATION")
                 vibrator.vibrate(VIBRATE_DURATION)
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
+
 
     companion object {
         private const val TAG = "QrCodeReaderFragment"

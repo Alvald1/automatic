@@ -12,8 +12,8 @@ import androidx.navigation.fragment.NavHostFragment
 import com.automatic.design.ui.base.BaseActivity
 import com.automatic.design.ui.permission.IGetPermissionListener
 import com.automatic.design.ui.permission.PermissionUtil
-import com.licious.automatic.main.R
-import com.licious.automatic.main.databinding.ActivityScannerBinding
+import com.automatic.main.R
+import com.automatic.main.databinding.ActivityScannerBinding
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 

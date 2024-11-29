@@ -15,7 +15,7 @@ class MyNotificationListenerService : NotificationListenerService() {
         Log.d("NotificationListener", "Уведомление от $packageName: $title - $text")
 
         // Отправка уведомления в MainActivity через Broadcast
-        val intent = Intent("com.licious.sample.NOTIFICATION_LISTENER")
+        val intent = Intent("com.automatic.NOTIFICATION_LISTENER")
         intent.putExtra("package_name", packageName)
         intent.putExtra("title", title)
         intent.putExtra("text", text)
