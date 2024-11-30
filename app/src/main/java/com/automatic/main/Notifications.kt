@@ -7,22 +7,28 @@ import android.util.Log
 
 class MyNotificationListenerService : NotificationListenerService() {
 
+    private val TAG = "NotificationListenerService"
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val packageName = sbn.packageName
         val title = sbn.notification?.extras?.getString("android.title")
         val text = sbn.notification?.extras?.getString("android.text")
 
-        Log.d("NotificationListener", "Уведомление от $packageName: $title - $text")
+        // Log the notification details
+        Log.d(TAG, "Notification posted: Package - $packageName, Title - $title, Text - $text")
 
-        // Отправка уведомления в MainActivity через Broadcast
+        // Send notification data to MainActivity via Broadcast
         val intent = Intent("com.automatic.NOTIFICATION_LISTENER")
         intent.putExtra("package_name", packageName)
         intent.putExtra("title", title)
         intent.putExtra("text", text)
+
+        // Broadcasting the notification data
         sendBroadcast(intent)
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification) {
-        Log.d("NotificationListener", "Уведомление удалено: ${sbn.packageName}")
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
+        Log.d(TAG, "Notification removed: ${sbn?.packageName}")
     }
 }

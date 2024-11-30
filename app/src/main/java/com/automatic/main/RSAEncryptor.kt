@@ -1,6 +1,7 @@
 package com.automatic.main
 
 import android.util.Base64
+import kotlinx.serialization.Serializable
 import java.security.KeyFactory
 import java.security.PublicKey
 import java.security.SecureRandom
@@ -9,6 +10,13 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.IvParameterSpec
+
+@Serializable
+data class EncryptedData(
+    val encryptedKey: String,
+    val iv: String,
+    val ciphertext: String
+)
 
 class HybridEncryptor(private val publicKeyPem: String) {
 

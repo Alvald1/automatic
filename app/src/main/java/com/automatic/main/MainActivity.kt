@@ -8,13 +8,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -43,7 +44,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -58,68 +58,52 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.automatic.main.ui.ScannerActivity
 import com.automatic.main.ui.theme.AutomaticTheme
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import okhttp3.Call
-import okhttp3.Callback
-import okhttp3.FormBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import java.io.IOException
 
 
 // Данные для десериализации JSON-ответа
-@Serializable
-data class ResponseData(
-    val message: String,
-    val code: Int,
-    val name: String? = null
-)
-
-@Serializable
-data class EncryptedData(
-    val encryptedKey: String,
-    val iv: String,
-    val ciphertext: String
-)
 
 
 var device_name_: String? = "Neo"
 var id_: String? = ""
 var pem_pub_: String? = ""
 var scanStatus: Boolean = false
+val url = "http://213.189.205.6:8080/api"
 
 
 class MainActivity : ComponentActivity() {
-    private val notificationHistory = mutableStateListOf<String>() // Хранение истории уведомлений
-    private lateinit var sharedPrefs: SharedPreferences
-
+    private var notificationHistory =
+        HashSet<String>()  // Mutable Set for storing notification history
+    private lateinit var sharedPreferencesManager: SharedPreferencesManager
+    private lateinit var networkManager: NetworkManager
+    private lateinit var deviceManager: DeviceManager
+    private lateinit var notificationHistoryManager: NotificationHistoryManager
 
     private val scannerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
                 val scanResult = result.data?.getStringExtra("SCAN_RESULT")
                 scanResult?.let {
-                    turnOff(this)
-                    val url = "http://213.189.205.6:8080/api"
-                    val params = mapOf("key" to it, "status" to "on")
-                    sendPostRequest(url, params) { response ->
-                        if (response != null) {
-                            val obj = Json.decodeFromString<ResponseData>(response)
-                            if (obj.code != 0) {
-                                showToast(this, obj.message)
-                            } else {
-                                pem_pub_ = obj.message
-                                device_name_ = obj.name
+
+                    deviceManager.turnOff(this, id_) { _ -> }
+                    deviceManager.turnOn(this, it) { responseData ->
+                        when (responseData.code) {
+                            0 -> {
+                                pem_pub_ = responseData.message
+                                device_name_ = responseData.name
                                 id_ = it
-                                saveResult(this, "DEVICE_NAME", device_name_)
-                                saveResult(this, "ID", it)
+                                sharedPreferencesManager.save("DEVICE_NAME", device_name_)
+                                sharedPreferencesManager.save("ID", it)
                                 scanStatus = true
+                                showToast(this, "Устройство включено")
                             }
-                        } else {
-                            println("Failed to get response")
+
+                            1 -> {
+                                showToast(this, "Устройство уже авторизовано")
+                            }
+
+                            2 -> {
+                                showToast(this, "Устройство не найдено")
+                            }
                         }
                     }
                 }
@@ -127,22 +111,55 @@ class MainActivity : ComponentActivity() {
         }
 
 
+    private val notificationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val packageName = intent?.getStringExtra("package_name")
+            val title = intent?.getStringExtra("title")
+            val text = intent?.getStringExtra("text")
+
+            // Process notification
+            val notificationInfo = "Package: $packageName\nTitle: $title\nText: $text"
+
+            // Save notification to history
+            notificationHistoryManager.addNotification(notificationInfo)
+
+            // Log notification info for debugging
+            Log.d("das", "Received notification: $notificationInfo")
+
+            // Filtering the notification data
+        }
+    }
+
+
     @SuppressLint("NewApi")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        sharedPreferencesManager = SharedPreferencesManager(this)
+        networkManager = NetworkManager()
+        deviceManager =
+            DeviceManager(networkManager)
+        notificationHistoryManager =
+            NotificationHistoryManager(sharedPreferencesManager)
+
+
         registerReceiver(
             notificationReceiver, IntentFilter("com.automatic.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
-        sharedPrefs = getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
-        loadNotificationHistory()
-        // Загрузка сохранённого результата сканирования
-        id_ = loadResult(this, "ID")
-        device_name_ = loadResult(this, "DEVICE_NAME")
 
+
+        notificationHistory = notificationHistoryManager.getHistory()
+        id_ = sharedPreferencesManager.load("ID")
+        device_name_ = sharedPreferencesManager.load("DEVICE_NAME")
+
+        requestNotificationPermission_listen()
         requestNotificationPermission_post()
+
         //startForegroundService(Intent(this, MyForegroundService::class.java))
 
+        val serviceIntent = Intent(this, NotificationService::class.java)
+        startService(serviceIntent)
 
         setContent {
             AutomaticTheme {
@@ -154,8 +171,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        turnOff(this)
-        unregisterReceiver(notificationReceiver)
     }
 
     private fun openScanner() {
@@ -166,7 +181,7 @@ class MainActivity : ComponentActivity() {
     // Логика очистки истории
     private fun clearHistory() {
         notificationHistory.clear()
-        saveNotificationHistory()
+        notificationHistoryManager.delete()
     }
 
     @Composable
@@ -177,6 +192,7 @@ class MainActivity : ComponentActivity() {
             composable("main") {
                 MainScreen(
                     onScanQrClicked = { openScanner() },
+                    deviceManager = deviceManager,
                     onHistoryClicked = { navController.navigate("history") }
                 )
             }
@@ -189,42 +205,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveNotificationHistory() {
-        val historyString =
-            notificationHistory.joinToString(separator = "||") // Используем разделитель "||"
-        sharedPrefs.edit().putString("notification_history", historyString).apply()
-    }
-
-    // Загружаем историю уведомлений из SharedPreferences
-    private fun loadNotificationHistory() {
-        val historyString = sharedPrefs.getString("notification_history", null)
-        if (!historyString.isNullOrEmpty()) {
-            val historyList = historyString.split("||") // Разделяем строки по "||"
-            notificationHistory.clear()
-            notificationHistory.addAll(historyList)
-        }
-    }
-
-    private val notificationReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val packageName = intent?.getStringExtra("package_name")
-            val title = intent?.getStringExtra("title")
-            val text = intent?.getStringExtra("text")
-
-            // Добавление уведомления в историю
-            val notificationInfo = "Пакет: $packageName\nЗаголовок: $title\nТекст: $text"
-            notificationHistory.add(notificationInfo)
-            saveNotificationHistory()
-
-            filter(packageName, title, text)
-        }
-    }
-
     private val requestPermissionLauncher_post =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                showToast(this, "Разрешение на отправку уведомления предоставлено")
-            } else {
+            if (!isGranted) {
                 showToast(this, "Разрешение на отправку уведомления отклонено")
             }
         }
@@ -236,7 +219,7 @@ class MainActivity : ComponentActivity() {
                     this,
                     Manifest.permission.POST_NOTIFICATIONS
                 ) == PackageManager.PERMISSION_GRANTED -> {
-                    showToast(this, "Разрешение уже предоставлено")
+                    showToast(this, "Разрешение на отправку уведомлений уже предоставлено")
                 }
 
                 else -> {
@@ -247,218 +230,58 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-}
-
-
-fun sendPostRequest(
-    url: String,
-    params: Map<String, String>,
-    callback: (String?) -> Unit
-) {
-
-    val formBodyBuilder = FormBody.Builder()
-    for ((key, value) in params) {
-        formBodyBuilder.add(key, value)
-    }
-    val requestBody = formBodyBuilder.build()
-
-    // Создаем HTTP-клиент
-    val client = OkHttpClient()
-
-    // Формируем запрос
-    val request = Request.Builder()
-        .url(url)
-        .post(requestBody)
-        .build()
-
-    // Выполняем запрос
-    client.newCall(request).enqueue(object : Callback {
-        override fun onFailure(call: Call, e: IOException) {
-            e.printStackTrace()
-            // Возвращаем null, если произошла ошибка
-            callback(null)
-        }
-
-        override fun onResponse(call: Call, response: Response) {
-            if (response.isSuccessful) {
-                // Получаем тело ответа в виде строки
-                val responseBody = response.body?.string()
-                callback(responseBody)
-            } else {
-                // Возвращаем null, если ответ неуспешный
-                callback(null)
+    private val requestPermissionLauncher_listen =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                // Check if permission was granted after navigating to settings
+                if (!checkNotificationPermission_listen()) {
+                    showToast(this, "Разрешение на прослушивание уведомлений отклонено")
+                }
             }
         }
-    })
-}
 
-
-fun turnOn(context: Context) {
-    if (id_ != null && id_ != "") {
-        val id: String = id_ as String
-        val url = "http://213.189.205.6:8080/api"
-        val params = mapOf("key" to id, "status" to "on")
-        sendPostRequest(url, params) { response ->
-            if (response != null) {
-                val obj = Json.decodeFromString<ResponseData>(response)
-                if (obj.code == 0) {
-                    pem_pub_ = obj.message
-                    scanStatus = true
-                    showToast(context, "Ok")
-                } else
-                    showToast(context, obj.message)
-            } else {
-                println("Failed to get response")
-            }
-        }
-    } else {
-        showToast(context, "Устройство не подключено")
+    private fun checkNotificationPermission_listen(): Boolean {
+        val enabledListeners =
+            Settings.Secure.getString(this.contentResolver, "enabled_notification_listeners")
+        return enabledListeners != null && enabledListeners.contains(this.packageName)
     }
-}
 
-fun Test(context: Context) {
-    if (id_ != null && id_ != "") {
-        val id: String = id_ as String
-        val url = "http://213.189.205.6:8080/api"
-        val pem_pub = pem_pub_?.trimIndent()
-
-        val encryptor = pem_pub?.let { HybridEncryptor(it) }
-        val encryptedDataMap = encryptor!!.encrypt(url)
-        val encryptedData = EncryptedData(
-            encryptedKey = encryptedDataMap["encryptedKey"] ?: "",
-            iv = encryptedDataMap["iv"] ?: "",
-            ciphertext = encryptedDataMap["ciphertext"] ?: ""
-        )
-        val jsonString = Json.encodeToString(encryptedData)
-
-        val params = mapOf("key" to id, "message" to jsonString)
-        sendPostRequest(url, params) { response ->
-            if (response != null) {
-                val obj = Json.decodeFromString<ResponseData>(response)
-                if (obj.code == 0) {
-                    showToast(context, obj.message)
-                } else
-                    showToast(context, obj.message)
-            } else {
-                println("Failed to get response")
-            }
+    private fun requestNotificationPermission_listen() {
+        if (!checkNotificationPermission_listen()) {
+            // If permission isn't granted, launch the settings screen to enable it
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            requestPermissionLauncher_listen.launch(intent)
+        } else {
+            showToast(this, "Разрешение на прослушивание уведомлений уже предоставлено")
         }
-    } else {
-        showToast(context, "Устройство не подключено")
     }
-}
 
-fun turnOff(context: Context) {
-    if (id_ != null && id_ != "") {
-        val id: String = id_ as String
-        val url = "http://213.189.205.6:8080/api"
-        val params = mapOf("key" to id, "status" to "off")
-        sendPostRequest(url, params) { response ->
-            if (response != null) {
-                val obj = Json.decodeFromString<ResponseData>(response)
-                if (obj.code == 0) {
-                    scanStatus = false
-                    showToast(context, obj.message)
-                } else
-                    showToast(context, obj.message)
-            } else {
-                println("Failed to get response")
-            }
-        }
-    } else {
-        showToast(context, "Устройство не подключено")
-    }
+
 }
 
 
 fun showToast(context: Context, message: String) {
     Handler(Looper.getMainLooper()).post {
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, message, message.length).show()
     }
 }
 
-fun saveResult(context: Context, key: String, scanResult: String?) {
-    val sharedPreferences: SharedPreferences =
-        context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
-    with(sharedPreferences.edit()) {
-        putString(key, scanResult)
-        apply()
-    }
-}
-
-fun loadResult(context: Context, key: String): String? {
-    val sharedPreferences: SharedPreferences =
-        context.getSharedPreferences("ScannerPreferences", Context.MODE_PRIVATE)
-    return sharedPreferences.getString(key, null)
-}
-
-
-fun filter(packageName: String?, title: String?, text: String?) {
-    if (packageName == "ru.bankuralsib.mb.android") {
-        val pattern = Regex(
-            """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
-        )
-
-        // Использование let для проверки на null и матчинг
-        val matchResult = text?.let { pattern.matchEntire(it) }
-
-        if (matchResult != null) {
-            // Извлечение групп
-            val sender = matchResult.groups[1]?.value
-            val bankName = matchResult.groups[2]?.value
-            val amount = matchResult.groups[3]?.value
-            val accountNumber = matchResult.groups[4]?.value
-            val day = matchResult.groups[5]?.value
-            val month = matchResult.groups[6]?.value
-            val year = matchResult.groups[7]?.value
-            val hour = matchResult.groups[8]?.value
-            val minute = matchResult.groups[9]?.value
-
-            // Вывод извлечённых значений
-            println("Отправитель: $sender")
-            println("Банк: $bankName")
-            println("Сумма: $amount RUR")
-            println("Номер счета: $accountNumber")
-            println("Дата исполнения: $day.$month.$year")
-            println("Время исполнения: $hour:$minute")
-        } else {
-            println("Строка не соответствует ожидаемому формату.")
-        }
-    } else {
-        println("Некорректное имя пакета.")
-    }
-}
-
-
-fun checkNotificationPermission(context: Context): Boolean {
-    val enabledListeners =
-        Settings.Secure.getString(context.contentResolver, "enabled_notification_listeners")
-    return enabledListeners != null && enabledListeners.contains(context.packageName)
-}
-
-@SuppressLint("InlinedApi")
-fun requestNotificationPermission(context: Context) {
-    if (!checkNotificationPermission(context)) {
-        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-        context.startActivity(intent)
-    }
-}
 
 @Composable
 fun MainScreen(
     onScanQrClicked: () -> Unit,
+    deviceManager: DeviceManager,
     onHistoryClicked: () -> Unit
 ) {
-    val isOnlineState = remember { mutableStateOf(false) }
     val context = LocalContext.current
-    var hasNotificationPermission by remember { mutableStateOf(checkNotificationPermission(context)) }
-    var nicknameState by remember { mutableStateOf(device_name_) }
+
+    var isOnlineState by remember { mutableStateOf(false) }
+    var nickname by remember { mutableStateOf(device_name_) }
 
     LaunchedEffect(Unit) {
         while (true) {
-            hasNotificationPermission = checkNotificationPermission(context)
-            nicknameState = device_name_
-            isOnlineState.value = scanStatus
+            nickname = device_name_
+            isOnlineState = scanStatus
             kotlinx.coroutines.delay(1000)
         }
     }
@@ -473,29 +296,70 @@ fun MainScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            val name = nicknameState ?: "Neo"
+            val name = nickname ?: "Neo"
             Greeting(name = name)
             Spacer(modifier = Modifier.height(16.dp))
-            NetworkStatus(isOnlineState.value)
+            NetworkStatus(isOnlineState)
             Spacer(modifier = Modifier.height(16.dp))
 
             Button(onClick = onScanQrClicked) {
                 Text(text = "Сканировать API-QR")
             }
-            if (!hasNotificationPermission) {
-                Button(onClick = { requestNotificationPermission(context) }) {
-                    Text(text = "Разрешения не получены. Нажмите для перехода в настройки.")
-                }
-            }
 
-            Button(onClick = { turnOn(context) }) {
+            Button(onClick = {
+                deviceManager.turnOn(context, id_) { responseData ->
+                    when (responseData.code) {
+                        0 -> {
+                            scanStatus = true
+                            pem_pub_ = responseData.message
+                            showToast(context, "Устройство включено")
+                        }
+
+                        1 -> {
+                            showToast(context, "Устройство уже авторизовано")
+                        }
+
+                        2 -> {
+                            showToast(context, "Устройство не найдено")
+                        }
+                    }
+                }
+            }) {
                 Text(text = "Включить")
             }
 
-            Button(onClick = { turnOff(context) }) {
+            Button(onClick = {
+                deviceManager.turnOff(context, id_) { responseData ->
+                    when (responseData.code) {
+                        0 -> {
+                            scanStatus = false
+                            showToast(context, "Устройство выключено")
+                        }
+
+                        2 -> {
+                            showToast(context, "Устройство не найдено")
+                        }
+                    }
+                }
+            }) {
                 Text(text = "Выключить")
             }
-            Button(onClick = { Test(context) }) {
+
+            Button(onClick = {
+                pem_pub_?.let {
+                    deviceManager.sendMessage(context, id_, it, "Test") { responseData ->
+                        when (responseData.code) {
+                            0 -> {
+                                showToast(context, responseData.message)
+                            }
+
+                            2 -> {
+                                showToast(context, "Устройство не найдено")
+                            }
+                        }
+                    }
+                }
+            }) {
                 Text(text = "Тест")
             }
 
@@ -512,7 +376,7 @@ fun MainScreen(
 @Composable
 fun HistoryScreen(
     onBack: () -> Unit,
-    notificationHistory: List<String>,
+    notificationHistory: HashSet<String>,
     onClearHistory: () -> Unit
 ) {
     // Состояние для списка прокрутки
@@ -551,11 +415,12 @@ fun HistoryScreen(
             state = listState,
             reverseLayout = true // Инвертирует порядок отображения элементов
         ) {
-            items(notificationHistory) { notification ->
+            items(notificationHistory.toList()) { notification ->
                 Text(
                     text = notification,
                     modifier = Modifier
                         .padding(8.dp)
+                        .fillMaxWidth()
                 )
             }
         }
