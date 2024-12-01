@@ -5,6 +5,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -44,9 +45,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -60,19 +63,16 @@ import com.automatic.main.ui.ScannerActivity
 import com.automatic.main.ui.theme.AutomaticTheme
 
 
-// Данные для десериализации JSON-ответа
-
-
 var device_name_: String? = "Neo"
 var id_: String? = ""
 var pem_pub_: String? = ""
 var scanStatus: Boolean = false
-val url = "http://213.189.205.6:8080/api"
+const val url = "http://213.189.205.6:8080/api"
 
 
 class MainActivity : ComponentActivity() {
     private var notificationHistory =
-        HashSet<String>()  // Mutable Set for storing notification history
+        mutableStateListOf<String>()
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
     private lateinit var networkManager: NetworkManager
     private lateinit var deviceManager: DeviceManager
@@ -111,26 +111,6 @@ class MainActivity : ComponentActivity() {
         }
 
 
-    private val notificationReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val packageName = intent?.getStringExtra("package_name")
-            val title = intent?.getStringExtra("title")
-            val text = intent?.getStringExtra("text")
-
-            // Process notification
-            val notificationInfo = "Package: $packageName\nTitle: $title\nText: $text"
-
-            // Save notification to history
-            notificationHistoryManager.addNotification(notificationInfo)
-
-            // Log notification info for debugging
-            Log.d("das", "Received notification: $notificationInfo")
-
-            // Filtering the notification data
-        }
-    }
-
-
     @SuppressLint("NewApi")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,24 +122,25 @@ class MainActivity : ComponentActivity() {
         notificationHistoryManager =
             NotificationHistoryManager(sharedPreferencesManager)
 
-
         registerReceiver(
             notificationReceiver, IntentFilter("com.automatic.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
 
 
-        notificationHistory = notificationHistoryManager.getHistory()
+        notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
         id_ = sharedPreferencesManager.load("ID")
         device_name_ = sharedPreferencesManager.load("DEVICE_NAME")
+
+
+
 
         requestNotificationPermission_listen()
         requestNotificationPermission_post()
 
+
         //startForegroundService(Intent(this, MyForegroundService::class.java))
 
-        val serviceIntent = Intent(this, NotificationService::class.java)
-        startService(serviceIntent)
 
         setContent {
             AutomaticTheme {
@@ -169,8 +150,58 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    private val notificationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val packageName = intent?.getStringExtra("package_name")
+            val title = intent?.getStringExtra("title")
+            val text = intent?.getStringExtra("text")
+
+            val notificationInfo = "Package: $packageName\nTitle: $title\nText: $text"
+
+            notificationHistoryManager.addNotification(notificationInfo)
+            notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
+
+            Log.d("NotificationService", "Received notification: $notificationInfo")
+
+            filter(packageName, title, text)
+        }
+    }
+
+    private fun filter(packageName: String?, title: String?, text: String?) {
+        if (packageName == "ru.bankuralsib.mb.android") {
+            val pattern = Regex(
+                """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
+            )
+
+            val matchResult = text?.let { pattern.matchEntire(it) }
+
+            if (matchResult != null) {
+                val sender = matchResult.groups[1]?.value
+                val bankName = matchResult.groups[2]?.value
+                val amount = matchResult.groups[3]?.value
+                val accountNumber = matchResult.groups[4]?.value
+                val day = matchResult.groups[5]?.value
+                val month = matchResult.groups[6]?.value
+                val year = matchResult.groups[7]?.value
+                val hour = matchResult.groups[8]?.value
+                val minute = matchResult.groups[9]?.value
+
+                Log.d(
+                    "NotificationService",
+                    "Extracted Info - Sender: $sender, Bank: $bankName, Amount: $amount RUR, Account: $accountNumber, Date: $day.$month.$year, Time: $hour:$minute"
+                )
+            } else {
+                Log.d("NotificationService", "Text does not match expected format.")
+            }
+        } else {
+            Log.d("NotificationService", "Incorrect package name: $packageName")
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        unregisterReceiver(notificationReceiver)
     }
 
     private fun openScanner() {
@@ -178,7 +209,6 @@ class MainActivity : ComponentActivity() {
         scannerLauncher.launch(intent)
     }
 
-    // Логика очистки истории
     private fun clearHistory() {
         notificationHistory.clear()
         notificationHistoryManager.delete()
@@ -223,7 +253,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 else -> {
-                    // Запрос разрешения
                     requestPermissionLauncher_post.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
             }
@@ -233,7 +262,6 @@ class MainActivity : ComponentActivity() {
     private val requestPermissionLauncher_listen =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == Activity.RESULT_OK) {
-                // Check if permission was granted after navigating to settings
                 if (!checkNotificationPermission_listen()) {
                     showToast(this, "Разрешение на прослушивание уведомлений отклонено")
                 }
@@ -248,15 +276,12 @@ class MainActivity : ComponentActivity() {
 
     private fun requestNotificationPermission_listen() {
         if (!checkNotificationPermission_listen()) {
-            // If permission isn't granted, launch the settings screen to enable it
             val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
             requestPermissionLauncher_listen.launch(intent)
         } else {
             showToast(this, "Разрешение на прослушивание уведомлений уже предоставлено")
         }
     }
-
-
 }
 
 
@@ -376,13 +401,11 @@ fun MainScreen(
 @Composable
 fun HistoryScreen(
     onBack: () -> Unit,
-    notificationHistory: HashSet<String>,
+    notificationHistory: List<String>,
     onClearHistory: () -> Unit
 ) {
-    // Состояние для списка прокрутки
     val listState = rememberLazyListState()
 
-    // Прокрутка до последнего элемента при изменении данных
     LaunchedEffect(notificationHistory) {
         if (notificationHistory.isEmpty())
             listState.scrollToItem(0)
@@ -413,7 +436,7 @@ fun HistoryScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
             state = listState,
-            reverseLayout = true // Инвертирует порядок отображения элементов
+            reverseLayout = true
         ) {
             items(notificationHistory.toList()) { notification ->
                 Text(
@@ -448,7 +471,6 @@ fun NetworkStatus(isOnline: Boolean) {
 }
 
 
-// Функция для отображения приветственного сообщения
 @Composable
 fun Greeting(name: String?, modifier: Modifier = Modifier) {
 

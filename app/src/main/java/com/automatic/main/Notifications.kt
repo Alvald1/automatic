@@ -14,16 +14,13 @@ class MyNotificationListenerService : NotificationListenerService() {
         val title = sbn.notification?.extras?.getString("android.title")
         val text = sbn.notification?.extras?.getString("android.text")
 
-        // Log the notification details
         Log.d(TAG, "Notification posted: Package - $packageName, Title - $title, Text - $text")
 
-        // Send notification data to MainActivity via Broadcast
         val intent = Intent("com.automatic.NOTIFICATION_LISTENER")
         intent.putExtra("package_name", packageName)
         intent.putExtra("title", title)
         intent.putExtra("text", text)
 
-        // Broadcasting the notification data
         sendBroadcast(intent)
     }
 

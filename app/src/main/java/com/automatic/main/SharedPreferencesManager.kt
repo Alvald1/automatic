@@ -13,15 +13,16 @@ class SharedPreferencesManager(context: Context) {
     }
 
     // Сохранение множества строк
-    fun save(key: String, value: HashSet<String>) {
-        sharedPreferences.edit().putStringSet(key, value).apply()
+    fun save(key: String, value: List<String>) {
+        sharedPreferences.edit().putStringSet(key, value.toSet()).apply()
     }
 
     // Загрузка строки
     fun load(key: String): String? = sharedPreferences.getString(key, null)
 
     // Загрузка множества строк
-    fun load(key: String, default: HashSet<String>): HashSet<String> {
-        return HashSet(sharedPreferences.getStringSet(key, default) ?: default)
+    fun load(key: String, default: List<String>): MutableList<String> {
+        return sharedPreferences.getStringSet(key, default.toSet())?.toMutableList()
+            ?: default.toMutableList()
     }
 }
