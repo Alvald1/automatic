@@ -1,24 +1,14 @@
 package com.automatic.main
 
 
-import android.Manifest
 import android.annotation.SuppressLint
-import android.app.Activity
-import android.app.AppOpsManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.PowerManager
-import android.os.Process
-import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -59,7 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -80,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var networkManager: NetworkManager
     private lateinit var deviceManager: DeviceManager
     private lateinit var notificationHistoryManager: NotificationHistoryManager
+    private lateinit var permissionManager: PermissionManager
 
     private val scannerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -134,10 +124,12 @@ class MainActivity : ComponentActivity() {
         id_ = sharedPreferencesManager.load("ID")
         device_name_ = sharedPreferencesManager.load("DEVICE_NAME")
 
-        requestNotificationPermission_listen()
-        requestNotificationPermission_post()
-        checkAndDisableBatteryOptimization(this)
-        checkAndRedirectAutoStart(this)
+        permissionManager = PermissionManager(this, activityResultRegistry)
+
+        permissionManager.requestNotificationPermission_listen()
+        permissionManager.requestNotificationPermission_post()
+        permissionManager.checkAndDisableBatteryOptimization(this)
+        permissionManager.checkAndRedirectAutoStart(this)
 
         //startForegroundService(Intent(this, MyForegroundService::class.java))
 
@@ -181,185 +173,6 @@ class MainActivity : ComponentActivity() {
                     notificationHistory = notificationHistory,
                     onClearHistory = { clearHistory() })
             }
-        }
-    }
-
-    private val requestPermissionLauncher_post =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (!isGranted) {
-                showToast(this, "Разрешение на отправку уведомления отклонено")
-            }
-        }
-
-    private fun requestNotificationPermission_post() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            when {
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED -> {
-                    showToast(this, "Разрешение на отправку уведомлений уже предоставлено")
-                }
-
-                else -> {
-                    requestPermissionLauncher_post.launch(Manifest.permission.POST_NOTIFICATIONS)
-                }
-            }
-        }
-    }
-
-    private val requestPermissionLauncher_listen =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                if (!checkNotificationPermission_listen()) {
-                    showToast(this, "Разрешение на прослушивание уведомлений отклонено")
-                }
-            }
-        }
-
-    private fun checkNotificationPermission_listen(): Boolean {
-        val enabledListeners =
-            Settings.Secure.getString(this.contentResolver, "enabled_notification_listeners")
-        return enabledListeners != null && enabledListeners.contains(this.packageName)
-    }
-
-    private fun requestNotificationPermission_listen() {
-        if (!checkNotificationPermission_listen()) {
-            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-            requestPermissionLauncher_listen.launch(intent)
-        } else {
-            showToast(this, "Разрешение на прослушивание уведомлений уже предоставлено")
-        }
-    }
-
-    @SuppressLint("BatteryLife")
-    fun checkAndDisableBatteryOptimization(context: Context) {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-
-        // Проверка, находится ли приложение под ограничением батареи
-        if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
-            Log.d("BatteryOptimization", "Battery optimization is enabled, requesting to disable.")
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            try {
-                context.startActivity(intent)
-            } catch (e: Exception) {
-                Log.e("BatteryOptimization", "Failed to open battery optimization settings", e)
-            }
-        } else {
-            Log.d("BatteryOptimization", "Battery optimization is already disabled.")
-        }
-    }
-
-    fun checkAutoStartForMIUI(context: Context): Boolean {
-        try {
-            val intent = Intent().setComponent(
-                ComponentName(
-                    "com.miui.securitycenter",
-                    "com.miui.permcenter.autostart.AutoStartManagementActivity"
-                )
-            )
-            context.packageManager.resolveActivity(intent, 0) ?: return false
-            context.startActivity(intent)
-            Log.d("AutoStart", "Redirecting to MIUI AutoStart settings.")
-            return true
-        } catch (e: Exception) {
-            Log.e("AutoStart", "Failed to open MIUI AutoStart settings.", e)
-            return false
-        }
-    }
-
-    fun checkAutoStartForHuawei(context: Context): Boolean {
-        try {
-            val intent = Intent().setComponent(
-                ComponentName(
-                    "com.huawei.systemmanager",
-                    "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
-                )
-            )
-            context.packageManager.resolveActivity(intent, 0) ?: return false
-            context.startActivity(intent)
-            Log.d("AutoStart", "Redirecting to Huawei AutoStart settings.")
-            return true
-        } catch (e: Exception) {
-            Log.e("AutoStart", "Failed to open Huawei AutoStart settings.", e)
-            return false
-        }
-    }
-
-    fun checkAutoStartForOppo(context: Context): Boolean {
-        try {
-            val intent = Intent().setComponent(
-                ComponentName(
-                    "com.coloros.safecenter",
-                    "com.coloros.safecenter.permission.startup.StartupAppListActivity"
-                )
-            )
-            context.packageManager.resolveActivity(intent, 0) ?: return false
-            context.startActivity(intent)
-            Log.d("AutoStart", "Redirecting to Oppo AutoStart settings.")
-            return true
-        } catch (e: Exception) {
-            Log.e("AutoStart", "Failed to open Oppo AutoStart settings.", e)
-            return false
-        }
-    }
-
-    fun checkAutoStartForVivo(context: Context): Boolean {
-        try {
-            val intent = Intent().setComponent(
-                ComponentName(
-                    "com.vivo.permissionmanager",
-                    "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
-                )
-            )
-            context.packageManager.resolveActivity(intent, 0) ?: return false
-            context.startActivity(intent)
-            Log.d("AutoStart", "Redirecting to Vivo AutoStart settings.")
-            return true
-        } catch (e: Exception) {
-            Log.e("AutoStart", "Failed to open Vivo AutoStart settings.", e)
-            return false
-        }
-    }
-
-    fun checkAutoStartForSamsung(context: Context): Boolean {
-        try {
-            val intent = Intent().setComponent(
-                ComponentName(
-                    "com.samsung.android.sm",
-                    "com.samsung.android.sm.app.dashboard.SmartManagerDashBoardActivity"
-                )
-            )
-            context.packageManager.resolveActivity(intent, 0) ?: return false
-            context.startActivity(intent)
-            Log.d("AutoStart", "Redirecting to Samsung AutoStart settings.")
-            return true
-        } catch (e: Exception) {
-            Log.e("AutoStart", "Failed to open Samsung AutoStart settings.", e)
-            return false
-        }
-    }
-
-    // Общая функция проверки для всех оболочек
-    fun checkAndRedirectAutoStart(context: Context) {
-        if (checkAutoStartForMIUI(context)) return
-        if (checkAutoStartForHuawei(context)) return
-        if (checkAutoStartForOppo(context)) return
-        if (checkAutoStartForVivo(context)) return
-        if (checkAutoStartForSamsung(context)) return
-
-        // Если оболочка не поддерживается, открываем универсальные настройки
-        try {
-            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            context.startActivity(intent)
-            showToast(context, "Включите автозапуск")
-            Log.d("AutoStart", "Redirecting to default application settings as fallback.")
-        } catch (e: Exception) {
-            Log.e("AutoStart", "Failed to open default application settings.", e)
         }
     }
 

@@ -1,7 +1,6 @@
 package com.automatic.main
 
 import android.util.Log
-import androidx.compose.runtime.snapshots.SnapshotStateList
 
 class NotificationHistoryManager(private val sharedPreferencesManager: SharedPreferencesManager) {
 
