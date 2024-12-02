@@ -186,7 +186,7 @@ class MainActivity : ComponentActivity() {
 
             val notificationInfo = "Time: $time\nPackage: $packageName\nTitle: $title\nText: $text"
 
-            if (scanStatus == false) {
+            if (scanStatus) {
                 notificationHistoryManager.addNotification(notificationInfo)
                 notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
                 notificationHistory.sortBy { it.substringAfter("Time: ").substringBefore("\n") }
