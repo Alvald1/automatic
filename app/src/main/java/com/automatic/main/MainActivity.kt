@@ -4,16 +4,20 @@ package com.automatic.main
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AppOpsManager
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.os.Process
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
@@ -71,8 +75,7 @@ const val url = "http://213.189.205.6:8080/api"
 
 
 class MainActivity : ComponentActivity() {
-    private var notificationHistory =
-        mutableStateListOf<String>()
+    private var notificationHistory = mutableStateListOf<String>()
     private lateinit var sharedPreferencesManager: SharedPreferencesManager
     private lateinit var networkManager: NetworkManager
     private lateinit var deviceManager: DeviceManager
@@ -80,7 +83,7 @@ class MainActivity : ComponentActivity() {
 
     private val scannerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
+            if (result.resultCode == RESULT_OK) {
                 val scanResult = result.data?.getStringExtra("SCAN_RESULT")
                 scanResult?.let {
 
@@ -115,87 +118,33 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        sharedPreferencesManager = SharedPreferencesManager(this)
-        networkManager = NetworkManager()
-        deviceManager =
-            DeviceManager(networkManager)
-        notificationHistoryManager =
-            NotificationHistoryManager(sharedPreferencesManager)
-
         registerReceiver(
             notificationReceiver, IntentFilter("com.automatic.NOTIFICATION_LISTENER"),
             RECEIVER_NOT_EXPORTED
         )
 
+        //restartNotificationListenerService()
+
+        sharedPreferencesManager = SharedPreferencesManager(this)
+        networkManager = NetworkManager()
+        deviceManager = DeviceManager(networkManager)
+        notificationHistoryManager = NotificationHistoryManager(sharedPreferencesManager)
 
         notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
         id_ = sharedPreferencesManager.load("ID")
         device_name_ = sharedPreferencesManager.load("DEVICE_NAME")
 
-
-
-
         requestNotificationPermission_listen()
         requestNotificationPermission_post()
-
+        checkAndDisableBatteryOptimization(this)
+        checkAndRedirectAutoStart(this)
 
         //startForegroundService(Intent(this, MyForegroundService::class.java))
-
 
         setContent {
             AutomaticTheme {
                 AppNavigation()
-
             }
-        }
-    }
-
-
-    private val notificationReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val packageName = intent?.getStringExtra("package_name")
-            val title = intent?.getStringExtra("title")
-            val text = intent?.getStringExtra("text")
-
-            val notificationInfo = "Package: $packageName\nTitle: $title\nText: $text"
-
-            notificationHistoryManager.addNotification(notificationInfo)
-            notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
-
-            Log.d("NotificationService", "Received notification: $notificationInfo")
-
-            filter(packageName, title, text)
-        }
-    }
-
-    private fun filter(packageName: String?, title: String?, text: String?) {
-        if (packageName == "ru.bankuralsib.mb.android") {
-            val pattern = Regex(
-                """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
-            )
-
-            val matchResult = text?.let { pattern.matchEntire(it) }
-
-            if (matchResult != null) {
-                val sender = matchResult.groups[1]?.value
-                val bankName = matchResult.groups[2]?.value
-                val amount = matchResult.groups[3]?.value
-                val accountNumber = matchResult.groups[4]?.value
-                val day = matchResult.groups[5]?.value
-                val month = matchResult.groups[6]?.value
-                val year = matchResult.groups[7]?.value
-                val hour = matchResult.groups[8]?.value
-                val minute = matchResult.groups[9]?.value
-
-                Log.d(
-                    "NotificationService",
-                    "Extracted Info - Sender: $sender, Bank: $bankName, Amount: $amount RUR, Account: $accountNumber, Date: $day.$month.$year, Time: $hour:$minute"
-                )
-            } else {
-                Log.d("NotificationService", "Text does not match expected format.")
-            }
-        } else {
-            Log.d("NotificationService", "Incorrect package name: $packageName")
         }
     }
 
@@ -261,7 +210,7 @@ class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher_listen =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
+            if (result.resultCode == RESULT_OK) {
                 if (!checkNotificationPermission_listen()) {
                     showToast(this, "Разрешение на прослушивание уведомлений отклонено")
                 }
@@ -280,6 +229,186 @@ class MainActivity : ComponentActivity() {
             requestPermissionLauncher_listen.launch(intent)
         } else {
             showToast(this, "Разрешение на прослушивание уведомлений уже предоставлено")
+        }
+    }
+
+    @SuppressLint("BatteryLife")
+    fun checkAndDisableBatteryOptimization(context: Context) {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+
+        // Проверка, находится ли приложение под ограничением батареи
+        if (!powerManager.isIgnoringBatteryOptimizations(context.packageName)) {
+            Log.d("BatteryOptimization", "Battery optimization is enabled, requesting to disable.")
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                Log.e("BatteryOptimization", "Failed to open battery optimization settings", e)
+            }
+        } else {
+            Log.d("BatteryOptimization", "Battery optimization is already disabled.")
+        }
+    }
+
+    fun checkAutoStartForMIUI(context: Context): Boolean {
+        try {
+            val intent = Intent().setComponent(
+                ComponentName(
+                    "com.miui.securitycenter",
+                    "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                )
+            )
+            context.packageManager.resolveActivity(intent, 0) ?: return false
+            context.startActivity(intent)
+            Log.d("AutoStart", "Redirecting to MIUI AutoStart settings.")
+            return true
+        } catch (e: Exception) {
+            Log.e("AutoStart", "Failed to open MIUI AutoStart settings.", e)
+            return false
+        }
+    }
+
+    fun checkAutoStartForHuawei(context: Context): Boolean {
+        try {
+            val intent = Intent().setComponent(
+                ComponentName(
+                    "com.huawei.systemmanager",
+                    "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+                )
+            )
+            context.packageManager.resolveActivity(intent, 0) ?: return false
+            context.startActivity(intent)
+            Log.d("AutoStart", "Redirecting to Huawei AutoStart settings.")
+            return true
+        } catch (e: Exception) {
+            Log.e("AutoStart", "Failed to open Huawei AutoStart settings.", e)
+            return false
+        }
+    }
+
+    fun checkAutoStartForOppo(context: Context): Boolean {
+        try {
+            val intent = Intent().setComponent(
+                ComponentName(
+                    "com.coloros.safecenter",
+                    "com.coloros.safecenter.permission.startup.StartupAppListActivity"
+                )
+            )
+            context.packageManager.resolveActivity(intent, 0) ?: return false
+            context.startActivity(intent)
+            Log.d("AutoStart", "Redirecting to Oppo AutoStart settings.")
+            return true
+        } catch (e: Exception) {
+            Log.e("AutoStart", "Failed to open Oppo AutoStart settings.", e)
+            return false
+        }
+    }
+
+    fun checkAutoStartForVivo(context: Context): Boolean {
+        try {
+            val intent = Intent().setComponent(
+                ComponentName(
+                    "com.vivo.permissionmanager",
+                    "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+                )
+            )
+            context.packageManager.resolveActivity(intent, 0) ?: return false
+            context.startActivity(intent)
+            Log.d("AutoStart", "Redirecting to Vivo AutoStart settings.")
+            return true
+        } catch (e: Exception) {
+            Log.e("AutoStart", "Failed to open Vivo AutoStart settings.", e)
+            return false
+        }
+    }
+
+    fun checkAutoStartForSamsung(context: Context): Boolean {
+        try {
+            val intent = Intent().setComponent(
+                ComponentName(
+                    "com.samsung.android.sm",
+                    "com.samsung.android.sm.app.dashboard.SmartManagerDashBoardActivity"
+                )
+            )
+            context.packageManager.resolveActivity(intent, 0) ?: return false
+            context.startActivity(intent)
+            Log.d("AutoStart", "Redirecting to Samsung AutoStart settings.")
+            return true
+        } catch (e: Exception) {
+            Log.e("AutoStart", "Failed to open Samsung AutoStart settings.", e)
+            return false
+        }
+    }
+
+    // Общая функция проверки для всех оболочек
+    fun checkAndRedirectAutoStart(context: Context) {
+        if (checkAutoStartForMIUI(context)) return
+        if (checkAutoStartForHuawei(context)) return
+        if (checkAutoStartForOppo(context)) return
+        if (checkAutoStartForVivo(context)) return
+        if (checkAutoStartForSamsung(context)) return
+
+        // Если оболочка не поддерживается, открываем универсальные настройки
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            context.startActivity(intent)
+            showToast(context, "Включите автозапуск")
+            Log.d("AutoStart", "Redirecting to default application settings as fallback.")
+        } catch (e: Exception) {
+            Log.e("AutoStart", "Failed to open default application settings.", e)
+        }
+    }
+
+
+    private val notificationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val packageName = intent?.getStringExtra("package_name")
+            val title = intent?.getStringExtra("title")
+            val text = intent?.getStringExtra("text")
+
+            val notificationInfo = "Package: $packageName\nTitle: $title\nText: $text"
+
+            notificationHistoryManager.addNotification(notificationInfo)
+            notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
+
+            Log.d("NotificationService", "Received notification: $notificationInfo")
+
+            filter(packageName, title, text)
+        }
+    }
+
+    private fun filter(packageName: String?, title: String?, text: String?) {
+        if (packageName == "ru.bankuralsib.mb.android") {
+            val pattern = Regex(
+                """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
+            )
+
+            val matchResult = text?.let { pattern.matchEntire(it) }
+
+            if (matchResult != null) {
+                val sender = matchResult.groups[1]?.value
+                val bankName = matchResult.groups[2]?.value
+                val amount = matchResult.groups[3]?.value
+                val accountNumber = matchResult.groups[4]?.value
+                val day = matchResult.groups[5]?.value
+                val month = matchResult.groups[6]?.value
+                val year = matchResult.groups[7]?.value
+                val hour = matchResult.groups[8]?.value
+                val minute = matchResult.groups[9]?.value
+
+                Log.d(
+                    "NotificationService",
+                    "Extracted Info - Sender: $sender, Bank: $bankName, Amount: $amount RUR, Account: $accountNumber, Date: $day.$month.$year, Time: $hour:$minute"
+                )
+            } else {
+                Log.d("NotificationService", "Text does not match expected format.")
+            }
+        } else {
+            Log.d("NotificationService", "Incorrect package name: $packageName")
         }
     }
 }
