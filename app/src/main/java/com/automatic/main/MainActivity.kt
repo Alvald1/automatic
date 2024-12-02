@@ -54,6 +54,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.automatic.main.ui.ScannerActivity
 import com.automatic.main.ui.theme.AutomaticTheme
+import org.json.JSONObject
 
 
 var device_name_: String? = "Neo"
@@ -113,7 +114,6 @@ class MainActivity : ComponentActivity() {
             RECEIVER_NOT_EXPORTED
         )
 
-        //restartNotificationListenerService()
 
         sharedPreferencesManager = SharedPreferencesManager(this)
         networkManager = NetworkManager()
@@ -182,20 +182,23 @@ class MainActivity : ComponentActivity() {
             val packageName = intent?.getStringExtra("package_name")
             val title = intent?.getStringExtra("title")
             val text = intent?.getStringExtra("text")
+            val time = intent?.getStringExtra("time")
 
-            val notificationInfo = "Package: $packageName\nTitle: $title\nText: $text"
+            val notificationInfo = "Time: $time\nPackage: $packageName\nTitle: $title\nText: $text"
 
-            notificationHistoryManager.addNotification(notificationInfo)
-            notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
+            if (scanStatus == false) {
+                notificationHistoryManager.addNotification(notificationInfo)
+                notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
+                notificationHistory.sortBy { it.substringAfter("Time: ").substringBefore("\n") }
+                Log.d("NotificationService", "Received notification: $notificationInfo")
 
-            Log.d("NotificationService", "Received notification: $notificationInfo")
-
-            filter(packageName, title, text)
+                filter(packageName, title, text)
+            }
         }
     }
 
     private fun filter(packageName: String?, title: String?, text: String?) {
-        if (packageName == "ru.bankuralsib.mb.android") {
+        if (packageName == "org.telegram.messenger") {
             val pattern = Regex(
                 """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
             )
@@ -212,6 +215,36 @@ class MainActivity : ComponentActivity() {
                 val year = matchResult.groups[7]?.value
                 val hour = matchResult.groups[8]?.value
                 val minute = matchResult.groups[9]?.value
+
+                val json = JSONObject().apply {
+                    put("sender", sender)
+                    put("bankName", bankName)
+                    put("amount", amount)
+                    put("accountNumber", accountNumber)
+                    put("day", day)
+                    put("month", month)
+                    put("year", year)
+                    put("hour", hour)
+                    put("minute", minute)
+                }
+
+                val jsonString = json.toString()
+
+                deviceManager.sendMessage(this, id_, pem_pub_ ?: "", jsonString) { responseData ->
+                    when (responseData.code) {
+                        0 -> {
+                            showToast(this, "Сообщение доставлено")
+                        }
+
+                        1 -> {
+                            showToast(this, "Сообщение уже зарегистрировано")
+                        }
+
+                        2 -> {
+                            showToast(this, "Устройство не найдено")
+                        }
+                    }
+                }
 
                 Log.d(
                     "NotificationService",
@@ -380,7 +413,7 @@ fun HistoryScreen(
             state = listState,
             reverseLayout = true
         ) {
-            items(notificationHistory.toList()) { notification ->
+            items(notificationHistory) { notification ->
                 Text(
                     text = notification,
                     modifier = Modifier
