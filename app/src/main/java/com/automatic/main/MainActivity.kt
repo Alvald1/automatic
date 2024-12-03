@@ -2,14 +2,13 @@ package com.automatic.main
 
 
 import android.annotation.SuppressLint
-import android.content.BroadcastReceiver
+import android.app.Application
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -38,31 +37,52 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.automatic.main.ui.ScannerActivity
 import com.automatic.main.ui.theme.AutomaticTheme
-import org.json.JSONObject
+import kotlinx.coroutines.flow.MutableStateFlow
 
 
-var device_name_: String? = "Neo"
-var id_: String? = ""
-var pem_pub_: String? = ""
-var scanStatus: Boolean = false
 const val url = "http://213.189.205.6:8080/api"
 
+class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private val sharedPreferencesManager = SharedPreferencesManager(application)
+
+    // Use MutableStateFlow for state management
+    val deviceName = MutableStateFlow(sharedPreferencesManager.load("DEVICE_NAME") ?: "Neo")
+    val id = MutableStateFlow(sharedPreferencesManager.load("ID"))
+    val pemPub = MutableStateFlow(sharedPreferencesManager.load("PEM_PUB"))
+    val scanStatus =
+        MutableStateFlow(sharedPreferencesManager.load("SCAN_STATUS")?.toBoolean() ?: false)
+
+    fun updateScanStatus(status: Boolean) {
+        scanStatus.value = status
+        sharedPreferencesManager.save("SCAN_STATUS", status.toString())
+    }
+
+    fun saveDeviceInfo(id: String?, deviceName: String?, pemPub: String?) {
+        this.id.value = id
+        this.deviceName.value = deviceName ?: "Neo"
+        this.pemPub.value = pemPub
+
+        sharedPreferencesManager.save("ID", id)
+        sharedPreferencesManager.save("DEVICE_NAME", deviceName)
+        sharedPreferencesManager.save("PEM_PUB", pemPub)
+    }
+}
 
 class MainActivity : ComponentActivity() {
     private var notificationHistory = mutableStateListOf<String>()
@@ -71,6 +91,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var deviceManager: DeviceManager
     private lateinit var notificationHistoryManager: NotificationHistoryManager
     private lateinit var permissionManager: PermissionManager
+    private lateinit var mainViewModel: MainViewModel
 
     private val scannerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -78,16 +99,16 @@ class MainActivity : ComponentActivity() {
                 val scanResult = result.data?.getStringExtra("SCAN_RESULT")
                 scanResult?.let {
 
-                    deviceManager.turnOff(this, id_) { _ -> }
+                    deviceManager.turnOff(this, mainViewModel.id.value) { _ -> }
                     deviceManager.turnOn(this, it) { responseData ->
                         when (responseData.code) {
                             0 -> {
-                                pem_pub_ = responseData.message
-                                device_name_ = responseData.name
-                                id_ = it
-                                sharedPreferencesManager.save("DEVICE_NAME", device_name_)
-                                sharedPreferencesManager.save("ID", it)
-                                scanStatus = true
+                                mainViewModel.saveDeviceInfo(
+                                    it,
+                                    responseData.name,
+                                    responseData.message
+                                )
+                                mainViewModel.updateScanStatus(true)
                                 showToast(this, "Устройство включено")
                             }
 
@@ -104,16 +125,19 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    private val preferenceChangeListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "notification_history") {
+                // Update notificationHistory when it changes in SharedPreferences
+                val updatedHistory = notificationHistoryManager.getHistory()
+                notificationHistory.clear()
+                notificationHistory.addAll(updatedHistory)
+            }
+        }
 
     @SuppressLint("NewApi")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        registerReceiver(
-            notificationReceiver, IntentFilter("com.automatic.NOTIFICATION_LISTENER"),
-            RECEIVER_NOT_EXPORTED
-        )
-
 
         sharedPreferencesManager = SharedPreferencesManager(this)
         networkManager = NetworkManager()
@@ -121,8 +145,6 @@ class MainActivity : ComponentActivity() {
         notificationHistoryManager = NotificationHistoryManager(sharedPreferencesManager)
 
         notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
-        id_ = sharedPreferencesManager.load("ID")
-        device_name_ = sharedPreferencesManager.load("DEVICE_NAME")
 
         permissionManager = PermissionManager(this, activityResultRegistry)
 
@@ -131,7 +153,12 @@ class MainActivity : ComponentActivity() {
         permissionManager.checkAndDisableBatteryOptimization(this)
         permissionManager.checkAndRedirectAutoStart(this)
 
-        //startForegroundService(Intent(this, MyForegroundService::class.java))
+        startForegroundService(Intent(this, MyForegroundService::class.java))
+
+        // Register SharedPreferences listener
+        sharedPreferencesManager.registerOnSharedPreferenceChangeListener(preferenceChangeListener)
+
+        mainViewModel = ViewModelProvider(this).get(MainViewModel::class.java)
 
         setContent {
             AutomaticTheme {
@@ -142,7 +169,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        unregisterReceiver(notificationReceiver)
+        // Unregister SharedPreferences listener
+        sharedPreferencesManager.unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
     }
 
     private fun openScanner() {
@@ -162,6 +190,7 @@ class MainActivity : ComponentActivity() {
         NavHost(navController = navController, startDestination = "main") {
             composable("main") {
                 MainScreen(
+                    mainViewModel = mainViewModel,
                     onScanQrClicked = { openScanner() },
                     deviceManager = deviceManager,
                     onHistoryClicked = { navController.navigate("history") }
@@ -173,88 +202,6 @@ class MainActivity : ComponentActivity() {
                     notificationHistory = notificationHistory,
                     onClearHistory = { clearHistory() })
             }
-        }
-    }
-
-
-    private val notificationReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val packageName = intent?.getStringExtra("package_name")
-            val title = intent?.getStringExtra("title")
-            val text = intent?.getStringExtra("text")
-            val time = intent?.getStringExtra("time")
-
-            val notificationInfo = "Time: $time\nPackage: $packageName\nTitle: $title\nText: $text"
-
-            if (scanStatus) {
-                notificationHistoryManager.addNotification(notificationInfo)
-                notificationHistory = notificationHistoryManager.getHistory().toMutableStateList()
-                notificationHistory.sortBy { it.substringAfter("Time: ").substringBefore("\n") }
-                Log.d("NotificationService", "Received notification: $notificationInfo")
-
-                filter(packageName, title, text)
-            }
-        }
-    }
-
-    private fun filter(packageName: String?, title: String?, text: String?) {
-        if (packageName == "org.telegram.messenger") {
-            val pattern = Regex(
-                """^Perevod SBP ot ([A-Z ]+)\. iz ([A-Za-z ]+)\. Summa (\d+\.\d{2}) RUR na schet \*(\d{4})\. Ispolnen (0[1-9]|[12][0-9]|3[01])\.(0[1-9]|1[0-2])\.(\d{4}) ([01][0-9]|2[0-3]):([0-5][0-9])$"""
-            )
-
-            val matchResult = text?.let { pattern.matchEntire(it) }
-
-            if (matchResult != null) {
-                val sender = matchResult.groups[1]?.value
-                val bankName = matchResult.groups[2]?.value
-                val amount = matchResult.groups[3]?.value
-                val accountNumber = matchResult.groups[4]?.value
-                val day = matchResult.groups[5]?.value
-                val month = matchResult.groups[6]?.value
-                val year = matchResult.groups[7]?.value
-                val hour = matchResult.groups[8]?.value
-                val minute = matchResult.groups[9]?.value
-
-                val json = JSONObject().apply {
-                    put("sender", sender)
-                    put("bankName", bankName)
-                    put("amount", amount)
-                    put("accountNumber", accountNumber)
-                    put("day", day)
-                    put("month", month)
-                    put("year", year)
-                    put("hour", hour)
-                    put("minute", minute)
-                }
-
-                val jsonString = json.toString()
-
-                deviceManager.sendMessage(this, id_, pem_pub_ ?: "", jsonString) { responseData ->
-                    when (responseData.code) {
-                        0 -> {
-                            showToast(this, "Сообщение доставлено")
-                        }
-
-                        1 -> {
-                            showToast(this, "Сообщение уже зарегистрировано")
-                        }
-
-                        2 -> {
-                            showToast(this, "Устройство не найдено")
-                        }
-                    }
-                }
-
-                Log.d(
-                    "NotificationService",
-                    "Extracted Info - Sender: $sender, Bank: $bankName, Amount: $amount RUR, Account: $accountNumber, Date: $day.$month.$year, Time: $hour:$minute"
-                )
-            } else {
-                Log.d("NotificationService", "Text does not match expected format.")
-            }
-        } else {
-            Log.d("NotificationService", "Incorrect package name: $packageName")
         }
     }
 }
@@ -269,22 +216,15 @@ fun showToast(context: Context, message: String) {
 
 @Composable
 fun MainScreen(
+    mainViewModel: MainViewModel,
     onScanQrClicked: () -> Unit,
     deviceManager: DeviceManager,
     onHistoryClicked: () -> Unit
 ) {
     val context = LocalContext.current
 
-    var isOnlineState by remember { mutableStateOf(false) }
-    var nickname by remember { mutableStateOf(device_name_) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            nickname = device_name_
-            isOnlineState = scanStatus
-            kotlinx.coroutines.delay(1000)
-        }
-    }
+    val isOnlineState by mainViewModel.scanStatus.collectAsState()
+    val nickname by mainViewModel.deviceName.collectAsState()
 
     Scaffold(
         modifier = Modifier.fillMaxSize()
@@ -307,11 +247,11 @@ fun MainScreen(
             }
 
             Button(onClick = {
-                deviceManager.turnOn(context, id_) { responseData ->
+                deviceManager.turnOn(context, mainViewModel.id.value) { responseData ->
                     when (responseData.code) {
                         0 -> {
-                            scanStatus = true
-                            pem_pub_ = responseData.message
+                            mainViewModel.updateScanStatus(true)
+                            mainViewModel.pemPub.value = responseData.message
                             showToast(context, "Устройство включено")
                         }
 
@@ -329,10 +269,10 @@ fun MainScreen(
             }
 
             Button(onClick = {
-                deviceManager.turnOff(context, id_) { responseData ->
+                deviceManager.turnOff(context, mainViewModel.id.value) { responseData ->
                     when (responseData.code) {
                         0 -> {
-                            scanStatus = false
+                            mainViewModel.updateScanStatus(false)
                             showToast(context, "Устройство выключено")
                         }
 
@@ -346,8 +286,13 @@ fun MainScreen(
             }
 
             Button(onClick = {
-                pem_pub_?.let {
-                    deviceManager.sendMessage(context, id_, it, "Test") { responseData ->
+                mainViewModel.pemPub.value?.let {
+                    deviceManager.sendMessage(
+                        context,
+                        mainViewModel.id.value,
+                        it,
+                        "Test"
+                    ) { responseData ->
                         when (responseData.code) {
                             0 -> {
                                 showToast(context, responseData.message)

@@ -93,12 +93,15 @@ class DeviceManager(private val networkManager: NetworkManager) {
     }
 
     private fun handleDeviceResponse(response: String?): ResponseData {
-        if (response != null) {
-            Log.d(TAG, "handleDeviceResponse: Successfully decoded response.")
-            return Json.decodeFromString(response)
-        } else {
-            Log.d(TAG, "handleDeviceResponse: Failed to get a valid response.")
-            return ResponseData()
+        return try {
+            if (response != null) {
+                Json.decodeFromString(response)
+            } else {
+                ResponseData(code = -1, message = "Empty response")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse response", e)
+            ResponseData(code = -1, message = "Error parsing response")
         }
     }
 }

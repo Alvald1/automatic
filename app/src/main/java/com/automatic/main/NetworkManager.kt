@@ -8,8 +8,12 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
-class NetworkManager(private val client: OkHttpClient = OkHttpClient()) {
+class NetworkManager(private val client: OkHttpClient = OkHttpClient.Builder()
+    .connectTimeout(15, TimeUnit.SECONDS)
+    .readTimeout(15, TimeUnit.SECONDS)
+    .build()) {
 
     private val TAG = "NetworkManager"
 
